@@ -147,8 +147,9 @@ def find_thumbnail_for_id(raw_id):
         pass
     return None
 
-# Folium 지도 생성 함수 (범례 타이틀 삭제 및 2x2 그리드 프리뷰 적용)
-def create_map():
+# 💡 **성능 최적화**: Folium 지도 생성 함수에 `@st.cache_resource` 적용하여 최초 1회만 생성 후 재사용
+@st.cache_resource
+def create_map(data_len, img_dir):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
     # 우상단 범례 (타이틀 행 삭제 완료)
@@ -179,7 +180,7 @@ def create_map():
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 💡 **요청사항 반영**: 동일 위치 매체가 많을 경우 스크롤 대신 2x2 그리드 형태로 자동 확장
+        # 2x2 그리드 형태로 자동 확장되는 호버링 프리뷰
         tooltip_items_html = ""
         for _, row in group.iterrows():
             m_name = row.get('NAME', '')
@@ -195,7 +196,6 @@ def create_map():
             </div>
             """
 
-        # 매체 개수에 따라 2열 그리드로 자동 배치되는 컨테이너
         grid_cols = "repeat(2, 1fr)" if len(group) > 1 else "1fr"
         container_width = "520px" if len(group) > 1 else "280px"
 
@@ -232,9 +232,9 @@ def create_map():
         
     return m
 
-map_obj = create_map()
+map_obj = create_map(len(map_data), IMAGE_DIR)
 
-# 고정 2분할 레이아웃
+# 고정 2분할 레이아웃 적용
 col_map, col_detail = st.columns([3.8, 1.2])
 
 with col_map:
@@ -246,10 +246,6 @@ with col_map:
         key="main_map"
     )
     
-    # 💡 **클릭 디버깅 모니터 (사이드바에 출력)**
-    with st.sidebar.expander("🔍 클릭 디버그 모니터"):
-        st.write("raw map_output:", map_output)
-
     # 클릭 감지 및 상세 정보 반영 로직
     clicked_lat_val, clicked_lon_val = None, None
     if map_output:
@@ -273,7 +269,8 @@ with col_map:
 
 with col_detail:
     if st.session_state.clicked_lat is not None:
-        if st.button("❌ 상세 정보 닫기", use_container_width=True):
+        # 💡 고유 key 부여로 닫기 버튼 오작동 완벽 차단
+        if st.button("❌ 상세 정보 닫기", use_container_width=True, key="close_detail_btn"):
             st.session_state.clicked_lat = None
             st.session_state.clicked_lon = None
             st.rerun()
