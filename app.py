@@ -84,15 +84,15 @@ def format_text_with_br(val):
 def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 💡 호버링 툴팁과 클릭 팝업 스타일 대폭 확장 최적화 CSS
+    # 💡 툴팁 및 팝업 스타일 CSS 최적화
     custom_css = """
     <style>
     .leaflet-tooltip {
-        max-width: 550px !important;
+        max-width: 420px !important;
         white-space: normal !important;
         border-radius: 12px !important;
         box-shadow: 0 8px 25px rgba(0,0,0,0.3) !important;
-        padding: 14px !important;
+        padding: 12px !important;
         background-color: #ffffff !important;
         border: 2px solid #ddd !important;
     }
@@ -134,14 +134,19 @@ def create_map(data_hash, is_mix_mode):
             
             img_urls = get_github_image_urls(row.get('ID', ''))
             
-            # 💡 호버링 툴팁용 이미지 크기를 대폭 확대 (높이 180px, 선명하게)
-            img_tag_small = f'<br><img src="{img_urls[0]}" style="width:100%; height:180px; object-fit:cover; border-radius:6px; margin-top:8px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
+            # 💡 호버링 툴팁: 좌측 텍스트 + 우측 가로형 이미지 배치 (안정적인 비율)
+            img_tag_small = f'<img src="{img_urls[0]}" style="width: 120px; height: 95px; object-fit: cover; border-radius: 6px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
+            
             tooltip_items += f"""
-            <div style="background: #fdfdfd; border: 1px solid #d0d0d0; padding: 10px; border-radius: 8px; margin-bottom: 6px;">
-                <b style="font-size: 14px; color: #222;">{m_name}</b><br>
-                <span style="font-size: 12px; color: #555;"><b>유형:</b> {m_type}</span><br>
-                <span style="font-size: 13px; color: #e74c3c; font-weight: bold;">💰 {m_price}원</span>
-                {img_tag_small}
+            <div style="background: #fdfdfd; border: 1px solid #d0d0d0; padding: 10px; border-radius: 8px; display: flex; gap: 12px; align-items: center; margin-bottom: 6px;">
+                <div style="flex: 1; min-width: 0;">
+                    <b style="font-size: 13px; color: #222; display: block; margin-bottom: 4px;">{m_name}</b>
+                    <span style="font-size: 11px; color: #555; display: block; margin-bottom: 2px;"><b>유형:</b> {m_type}</span>
+                    <span style="font-size: 12px; color: #e74c3c; font-weight: bold;">💰 {m_price}원</span>
+                </div>
+                <div style="flex-shrink: 0;">
+                    {img_tag_small}
+                </div>
             </div>
             """
             
@@ -165,9 +170,8 @@ def create_map(data_hash, is_mix_mode):
                 </div>
                 """
 
-        grid_cols = "repeat(2, 1fr)" if len(group) > 1 else "1fr"
-        # 💡 툴팁 최대 너비 확대 및 내부 컨테이너 구성 강화
-        tooltip_html = f"""<div style="font-family: sans-serif; padding: 4px; max-width: 520px;"><div style="display: grid; grid-template-columns: {grid_cols}; gap: 10px;">{tooltip_items}</div></div>"""
+        # 💡 툴팁 컨테이너 너비 지정 및 세로로 쏠리는 현상 방지
+        tooltip_html = f"""<div style="font-family: sans-serif; padding: 2px; width: 380px;">{tooltip_items}</div>"""
         
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
         
