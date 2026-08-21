@@ -101,7 +101,20 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# 이미지 경로를 찾아 Base64 썸네일로 변환하는 함수 (호버링 프리뷰용)
+# 비상용 사이드바 직접 선택 기능
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 매체 직접 선택")
+media_names = ["선택 안 함"] + list(map_data['NAME'].astype(str).unique())
+selected_media = st.sidebar.selectbox("매체명으로 바로 보기", media_names)
+
+if selected_media != "선택 안 함":
+    target_row = map_data[map_data['NAME'].astype(str) == selected_media].iloc[0]
+    if st.session_state.clicked_lat != target_row['LAT'] or st.session_state.clicked_lon != target_row['LON']:
+        st.session_state.clicked_lat = target_row['LAT']
+        st.session_state.clicked_lon = target_row['LON']
+        st.rerun()
+
+# 💡 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (크기 300% 확대 반영)
 def get_thumbnail_base64(row_item):
     try:
         raw_id = row_item.get('ID', '')
@@ -110,8 +123,8 @@ def get_thumbnail_base64(row_item):
             id_str = id_str[:-2]
         try:
             id_val = int(float(id_str))
-            id_str_z3 = str(id_val).zfill(3)
-            id_str_raw = str(id_val)
+            id_str_z3 = str(id_val).zfill(3) # 예: 313
+            id_str_raw = str(id_val)         # 예: 313
         except:
             id_str_z3 = id_str
             id_str_raw = id_str
@@ -120,15 +133,12 @@ def get_thumbnail_base64(row_item):
             for f in os.listdir(IMAGE_DIR):
                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
                     name_no_ext = os.path.splitext(f)[0]
-                    if name_no_ext == id_str_z3 or \
-                       name_no_ext == id_str_raw or \
-                       name_no_ext.startswith(id_str_z3 + '_') or \
-                       name_no_ext.startswith(id_str_raw + '_') or \
-                       name_no_ext.startswith(id_str_z3 + '-') or \
-                       name_no_ext.startswith(id_str_raw + '-'):
+                    # 💡 정확히 'ID_A' 형태의 파일명만 타겟팅 (예: 313_A, 013_A 등)
+                    if name_no_ext == f"{id_str_z3}_A" or name_no_ext == f"{id_str_raw}_A" or \
+                       name_no_ext == f"{id_str_z3}_a" or name_no_ext == f"{id_str_raw}_a":
                         img_path = os.path.join(IMAGE_DIR, f)
                         with Image.open(img_path) as img:
-                            img.thumbnail((240, 180))
+                            img.thumbnail((600, 450))  # 고해상도 대형 썸네일
                             if img.mode != 'RGB':
                                 img = img.convert('RGB')
                             buffered = BytesIO()
@@ -155,6 +165,7 @@ def create_map():
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
+        # 첫 번째 매체의 ID_A 대표 이미지 가져오기
         thumb_b64 = get_thumbnail_base64(group.iloc[0])
         
         if len(group) > 1:
@@ -162,11 +173,11 @@ def create_map():
         else:
             tooltip_title = group['NAME'].iloc[0]
 
-        # 💡 깔끔한 호버링 툴팁 HTML (이름 + 대표 이미지 프리뷰)
+        # 💡 300% 확대된 대형 호버링 프리뷰 툴팁 디자인
         tooltip_html = f"""
-        <div style="text-align: center; font-family: sans-serif; padding: 4px; background: white; border-radius: 6px;">
-            <b style="font-size: 13px; color: #333;">{tooltip_title}</b><br>
-            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:160px; height:110px; object-fit:cover; border-radius:4px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:11px; color:#888; margin-top:4px;">이미지 없음</div>'}
+        <div style="text-align: center; font-family: sans-serif; padding: 8px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+            <b style="font-size: 15px; color: #222;">{tooltip_title}</b><br>
+            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:420px; height:300px; object-fit:cover; border-radius:6px; margin-top:8px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:12px; color:#888; margin-top:8px;">대표 이미지(ID_A) 없음</div>'}
         </div>
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
@@ -186,7 +197,7 @@ def create_map():
         
         custom_icon = folium.DivIcon(html=html_content, icon_size=(30, 30), icon_anchor=(15, 15))
         
-        # 💡 popup을 완전히 제거하여 클릭 시 불필요한 팝업창이 뜨지 않고 호버링 프리뷰와 충돌하지 않도록 수정
+        # 팝업을 완전히 제거하여 호버링 프리뷰와 충돌 방지
         folium.Marker(
             [lat, lon],
             icon=custom_icon,
@@ -199,9 +210,9 @@ def create_map():
 if 'map_obj' not in st.session_state:
     st.session_state.map_obj = create_map()
 
-# 💡 1단계: 마커가 선택되지 않은 초기 상태 (전체화면 지도 단독 노출)
+# 1단계: 마커가 선택되지 않은 초기 상태 (전체화면 지도 단독 노출)
 if st.session_state.clicked_lat is None:
-    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 미리보기가, 클릭하면 상세 정보가 나타납니다)")
+    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 대형 미리보기가, 클릭하면 상세 정보가 나타납니다)")
     map_output = st_folium(
         st.session_state.map_obj, 
         width=1300, 
@@ -209,24 +220,20 @@ if st.session_state.clicked_lat is None:
         returned_objects=['last_clicked']
     )
     
-    # 지도 클릭 시 가장 가까운 마커의 좌표를 찾아 상세 정보 패널 활성화
     if map_output and map_output.get('last_clicked'):
         c_lat = map_output['last_clicked']['lat']
         c_lon = map_output['last_clicked']['lng']
         
         unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-        unique_coords['lat_diff'] = abs(unique_coords['LAT'] - c_lat)
-        unique_coords['lon_diff'] = abs(unique_coords['LON'] - c_lon)
-        unique_coords['total_diff'] = unique_coords['lat_diff'] + unique_coords['lon_diff']
+        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
         
-        closest = unique_coords.loc[unique_coords['total_diff'].idxmin()]
-        if closest['total_diff'] < 0.003:  # 클릭 근접 허용 범위
-            st.session_state.clicked_lat = closest['LAT']
-            st.session_state.clicked_lon = closest['LON']
-            st.rerun()
+        closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
+        st.session_state.clicked_lat = closest['LAT']
+        st.session_state.clicked_lon = closest['LON']
+        st.rerun()
 
 else:
-    # 💡 2단계: 마커가 클릭된 이후에만 2분할 레이아웃으로 전환
+    # 2단계: 마커가 클릭된 이후에만 2분할 레이아웃으로 전환
     col1, col2 = st.columns([1.6, 1])
     
     with col1:
@@ -243,16 +250,13 @@ else:
             c_lon = map_output['last_clicked']['lng']
             
             unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-            unique_coords['lat_diff'] = abs(unique_coords['LAT'] - c_lat)
-            unique_coords['lon_diff'] = abs(unique_coords['LON'] - c_lon)
-            unique_coords['total_diff'] = unique_coords['lat_diff'] + unique_coords['lon_diff']
+            unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
             
-            closest = unique_coords.loc[unique_coords['total_diff'].idxmin()]
-            if closest['total_diff'] < 0.003:
-                if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
-                    st.session_state.clicked_lat = closest['LAT']
-                    st.session_state.clicked_lon = closest['LON']
-                    st.rerun()
+            closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
+            if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
+                st.session_state.clicked_lat = closest['LAT']
+                st.session_state.clicked_lon = closest['LON']
+                st.rerun()
 
     with col2:
         st.subheader("📋 매체 상세 정보")
