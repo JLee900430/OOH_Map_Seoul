@@ -200,7 +200,6 @@ map_obj = create_map(len(map_data), st.session_state.mix_mode)
 
 if st.session_state.mix_mode:
     col_map, col_mix = st.columns([7, 3])
-    # 💡 DivIcon 마커 클릭을 안정적으로 감지하기 위해 'last_clicked' 활용
     returned_objects = ['last_clicked']
 else:
     col_map = st.container()
@@ -210,9 +209,9 @@ else:
 with col_map:
     if st.session_state.mix_mode:
         st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
-    map_output = st_folium(map_obj, width="100%", height=850, returned_objects=returned_objects, key="main_stable_map")
+    # 💡 지도 높이를 화면에 쏙 들어오도록 650으로 최적화
+    map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
 
-# 💡 지도 클릭 위치에서 가장 가까운 마커를 찾아 믹스에 추가하는 로직 보완
 if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
     c_lat, c_lon = map_output['last_clicked']['lat'], map_output['last_clicked']['lng']
     current_click = f"{c_lat}_{c_lon}"
@@ -222,7 +221,6 @@ if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
         unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
         closest_idx = unique_coords['dist_sq'].idxmin()
         
-        # 클릭 오차 범위를 넉넉하게 허용 (0.002 이내)
         if unique_coords.loc[closest_idx, 'dist_sq'] < 0.002:
             lat, lon = unique_coords.loc[closest_idx, 'LAT'], unique_coords.loc[closest_idx, 'LON']
             matched = map_data[(map_data['LAT'] == lat) & (map_data['LON'] == lon)]
