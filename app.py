@@ -99,10 +99,26 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# Folium 지도 생성 공통 함수 (동일 위치 겹침 검사 포함)
+# Folium 지도 생성 공통 함수 (타입별 색상 및 불법 뱃지 아이콘 적용)
 def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
+    
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
+        # 1. 타입 분석 (LED, STATIC, LED + STATIC)
+        types = group['TYPE'].astype(str).tolist()
+        type_str = " ".join(types).upper()
+        
+        if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
+            bg_color = '#9b59b6'  # 보라색 (LED + STATIC)
+        elif 'LED' in type_str:
+            bg_color = '#3498db'  # 파란색 (LED)
+        else:
+            bg_color = '#2ecc71'  # 초록색 (STATIC)
+            
+        # 2. 불법 여부 확인 (LEGAL 컬럼에 '불법' 또는 'X' 등이 포함된 경우)
+        is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
+        
+        # 3. 팝업 및 툴팁 텍스트 설정
         if len(group) > 1:
             names = "<br>".join([f"• {name}" for name in group['NAME'].astype(str)])
             popup_html = f"<b>동일 위치 매체 ({len(group)}개)</b><br>{names}"
@@ -111,12 +127,34 @@ def create_map():
             name = group['NAME'].iloc[0]
             popup_html = f"<b>{name}</b>"
             tooltip_text = name
+
+        # 4. 커스텀 HTML 아이콘 (DivIcon) 생성: 색상 원형 + 불법 뱃지
+        badge_html = ''
+        if is_illegal:
+            badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>'
+
+        html_content = f"""
+        <div style="position: relative; display: inline-block;">
+            <div style="background-color: {bg_color}; width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 10px;">
+                {len(group) if len(group) > 1 else '📍'}
+            </div>
+            {badge_html}
+        </div>
+        """
+        
+        custom_icon = folium.DivIcon(
+            html=html_content,
+            icon_size=(30, 30),
+            icon_anchor=(15, 15)
+        )
         
         folium.Marker(
             [lat, lon],
+            icon=custom_icon,
             tooltip=tooltip_text,
             popup=folium.Popup(popup_html, max_width=300)
         ).add_to(m)
+        
     return m
 
 # 3. 레이아웃 처리 (클릭 전: 전체화면 지도 / 클릭 후: 화면 분할)
@@ -125,7 +163,7 @@ if st.session_state.clicked_lat is None:
     m = create_map()
     map_output = st_folium(m, width=1200, height=650, use_container_width=True)
     
-    # 클릭 이벤트 감지 시 세션에 저장 후 리런(동적 레이아웃 전환)
+    # 클릭 이벤트 감지 시 세션에 저장 후 리런
     if map_output:
         c_lat, c_lon = None, None
         if map_output.get('last_object_clicked'):
@@ -179,7 +217,7 @@ else:
                     st.markdown(f"### 🏷️ {row.get('NAME', '')}")
                     st.write(f"**유형:** {row.get('TYPE', '')}")
                     st.write(f"**단가:** {row.get('PRICE', '')} 원")
-                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")  # 단가 기준 (PERIOD) 정보 추가
+                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")  # 단가 기준 (PERIOD) 정보
                     st.write(f"**합/불법:** {row.get('LEGAL', '')}")
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
