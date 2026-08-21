@@ -14,9 +14,6 @@ import folium
 # 페이지 설정 (와이드 모드)
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
-# 타이틀 설정
-st.title("🏙️ OOH Media in SEOUL")
-
 # 0. app.py가 위치한 절대 경로를 기준으로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -80,7 +77,7 @@ map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
-# Session State로 선택된 마커 위치 관리
+# Session State 초기화
 if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
@@ -88,7 +85,7 @@ if 'clicked_lon' not in st.session_state:
 
 # 비상용 사이드바 직접 선택 기능
 st.sidebar.markdown("---")
-st.sidebar.subheader("🎯 매체 직접 선택 (비상용)")
+st.sidebar.subheader("🎯 매체 직접 선택")
 media_names = ["선택 안 함"] + list(map_data['NAME'].astype(str).unique())
 selected_media = st.sidebar.selectbox("매체명으로 바로 보기", media_names)
 
@@ -99,7 +96,7 @@ if selected_media != "선택 안 함":
         st.session_state.clicked_lon = target_row['LON']
         st.rerun()
 
-# 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (캐싱 적용)
+# 💡 초고속 썸네일 변환 캐시 함수
 @st.cache_data
 def get_thumbnail_base64(img_dir, raw_id):
     try:
@@ -132,42 +129,41 @@ def get_thumbnail_base64(img_dir, raw_id):
         pass
     return None
 
-# Folium 지도 생성 함수 (범례 텍스트 잘림 해결 및 원래 마커 색상 규칙 적용)
-def create_map():
+# Folium 지도 생성 함수 (좌상단 타이틀 & 가독성 높은 범례 배치)
+@st.cache_resource
+def create_map_cached(data_hash, img_dir):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 💡 범례 박스 높이와 패딩을 늘려 텍스트 잘림 현상 완벽 해결 (타이틀 행 삭제 완료)
-    legend_html = """
+    # 💡 좌상단에 타이틀과 범례를 함께 가독성 있게 배치 (텍스트 잘림 방지)
+    title_legend_html = """
     <div style="position: fixed; 
-                top: 15px; right: 15px; width: 150px; height: 110px; 
+                top: 15px; left: 60px; width: 220px; height: 135px; 
                 background-color: white; z-index:9999; font-size:12px;
-                border:2px solid grey; border-radius: 6px; padding: 10px;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif; line-height: 1.6;">
+                border:2px solid #ccc; border-radius: 8px; padding: 10px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif; line-height: 1.5;">
+      <b style="font-size: 14px; color: #111;">🏙️ OOH Media in SEOUL</b><hr style="margin: 5px 0; border:0; border-top:1px solid #eee;">
       <div><span style="background:#3498db; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> LED</div>
       <div><span style="background:#2ecc71; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> STATIC</div>
       <div><span style="background:#9b59b6; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> LED + STATIC</div>
       <div><span style="background:#e74c3c; width:12px; height:12px; display:inline-block; border-radius:3px; margin-right:6px; vertical-align: middle;"></span> 불법 매체</div>
     </div>
     """
-    m.get_root().html.add_child(folium.Element(legend_html))
+    m.get_root().html.add_child(folium.Element(title_legend_html))
     
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
         
-        # 💡 원래 규칙대로 마커 컬러는 오직 LED, STATIC, LED+STATIC으로만 구분
+        # 마커 색상 규칙 원상복구 (LED, STATIC, LED + STATIC)
         if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
-            bg_color = '#9b59b6'  # 보라색 (LED + STATIC)
+            marker_color = 'purple'
         elif 'LED' in type_str:
-            bg_color = '#3498db'  # 파란색 (LED)
+            marker_color = 'blue'
         else:
-            bg_color = '#2ecc71'  # 초록색 (STATIC)
+            marker_color = 'green'
             
-        # 불법 여부는 상단 배지(Badge)로만 표시
-        is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
-        
         first_row = group.iloc[0]
-        thumb_b64 = get_thumbnail_base64(IMAGE_DIR, first_row.get('ID', ''))
+        thumb_b64 = get_thumbnail_base64(img_dir, first_row.get('ID', ''))
         
         if len(group) > 1:
             tooltip_title = f"{first_row['NAME']} 외 {len(group)-1}개"
@@ -177,7 +173,7 @@ def create_map():
         price_val = first_row.get('PRICE', '')
         period_val = first_row.get('PERIOD', '')
 
-        # 300% 대형 호버링 프리뷰 (가격, 단가 기준, ID_A 이미지 포함)
+        # 호버링 프리뷰 (가격, 단가 기준, ID_A 이미지 포함)
         tooltip_html = f"""
         <div style="text-align: center; font-family: sans-serif; padding: 10px; background: white; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); width: 320px;">
             <b style="font-size: 16px; color: #111;">{tooltip_title}</b><br>
@@ -187,64 +183,69 @@ def create_map():
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
 
-        badge_html = ''
-        if is_illegal:
-            badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>'
-
-        html_content = f"""
-        <div style="position: relative; display: inline-block; pointer-events: auto; cursor: pointer;">
-            <div style="background-color: {bg_color}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px;">
-                {len(group) if len(group) > 1 else '📍'}
-            </div>
-            {badge_html}
-        </div>
-        """
-        
-        custom_icon = folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16))
-        
         folium.Marker(
             [lat, lon],
-            icon=custom_icon,
+            icon=folium.Icon(color=marker_color, icon='info-sign', prefix='glyphicon'),
             tooltip=tooltip
         ).add_to(m)
         
     return m
 
-# 💡 고정 2분할 레이아웃 적용 (지도가 절대 다시 로딩되거나 줌이 풀리지 않음)
-col1, col2 = st.columns([1.6, 1])
+# 지도 객체 로드
+map_obj = create_map_cached(len(map_data), IMAGE_DIR)
 
-with col1:
-    m = create_map()
+# 💡 슬라이드 인 애니메이션 및 우측 드로어 패널 CSS 주입
+st.markdown("""
+<style>
+@keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+.slide-drawer {
+    animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# 💡 풀스크린 지도 배치 및 우측 슬라이드 패널 구조
+col_map, col_detail = st.columns([5, 0.001] if st.session_state.clicked_lat is None else [3.2, 1.8])
+
+with col_map:
     map_output = st_folium(
-        m, 
-        width=700, 
-        height=680, 
-        returned_objects=['last_clicked'],
+        map_obj, 
+        width="100%", 
+        height=820, 
+        returned_objects=['last_object_clicked'],
         key="main_map"
     )
     
-    if map_output and map_output.get('last_clicked'):
-        c_lat = map_output['last_clicked']['lat']
-        c_lon = map_output['last_clicked']['lng']
-        
-        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-        closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
-        
-        if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
-            st.session_state.clicked_lat = closest['LAT']
-            st.session_state.clicked_lon = closest['LON']
-            st.rerun()
+    if map_output:
+        clicked_obj = map_output.get('last_object_clicked')
+        if clicked_obj and 'lat' in clicked_obj and 'lng' in clicked_obj:
+            c_lat = clicked_obj['lat']
+            c_lon = clicked_obj['lng']
+            
+            unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+            unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+            closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
+            
+            if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
+                st.session_state.clicked_lat = closest['LAT']
+                st.session_state.clicked_lon = closest['LON']
+                st.rerun()
 
-with col2:
-    st.subheader("📋 매체 상세 정보")
-    
-    if st.session_state.clicked_lat is not None:
-        if st.button("❌ 상세 정보 닫기 (지도 전체보기)", use_container_width=True):
+if st.session_state.clicked_lat is not None:
+    with col_detail:
+        # 우측에서 슬라이드로 밀려오는 상세 정보 컨테이너
+        st.markdown('<div class="slide-drawer">', unsafe_allow_html=True)
+        
+        if st.button("❌ 상세 정보 닫기", use_container_width=True):
             st.session_state.clicked_lat = None
             st.session_state.clicked_lon = None
             st.rerun()
             
+        st.subheader("📋 매체 상세 정보")
+        
         matched = map_data[
             np.isclose(map_data['LAT'], st.session_state.clicked_lat, atol=1e-5) & 
             np.isclose(map_data['LON'], st.session_state.clicked_lon, atol=1e-5)
@@ -311,5 +312,5 @@ with col2:
                     st.markdown("---")
         else:
             st.info("해당 위치의 매체 정보를 찾을 수 없습니다.")
-    else:
-        st.info("👈 좌측 지도에서 마커를 클릭하시면 상세 정보와 이미지가 여기에 나타납니다.")
+            
+        st.markdown('</div>', unsafe_allow_html=True)
