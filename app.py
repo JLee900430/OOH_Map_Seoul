@@ -93,14 +93,15 @@ map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
-# 3. 레이아웃 분할 (좌측: 지도 / 우측: 상세 정보 패널)
-col1, col2 = st.columns([1.5, 1])
+# Session State로 선택된 마커 위치 관리 (초기에는 None)
+if 'clicked_lat' not in st.session_state:
+    st.session_state.clicked_lat = None
+if 'clicked_lon' not in st.session_state:
+    st.session_state.clicked_lon = None
 
-with col1:
-    st.subheader("📍 매체 위치 맵")
+# Folium 지도 생성 공통 함수 (동일 위치 겹침 검사 포함)
+def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
-    
-    # 동일 좌표 그룹화 마커 생성 (겹치는 매체가 있는 경우에만 동일 위치 매체 팝업 표시)
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
         if len(group) > 1:
             names = "<br>".join([f"• {name}" for name in group['NAME'].astype(str)])
@@ -116,26 +117,59 @@ with col1:
             tooltip=tooltip_text,
             popup=folium.Popup(popup_html, max_width=300)
         ).add_to(m)
-    
-    map_output = st_folium(m, width=700, height=600)
+    return m
 
-with col2:
-    st.subheader("📋 매체 상세 정보")
+# 3. 레이아웃 처리 (클릭 전: 전체화면 지도 / 클릭 후: 화면 분할)
+if st.session_state.clicked_lat is None:
+    st.subheader("📍 매체 위치 맵 (마커를 클릭하면 상세 정보가 나타납니다)")
+    m = create_map()
+    map_output = st_folium(m, width=1200, height=650, use_container_width=True)
     
-    clicked_lat, clicked_lon = None, None
-    
+    # 클릭 이벤트 감지 시 세션에 저장 후 리런(동적 레이아웃 전환)
     if map_output:
+        c_lat, c_lon = None, None
         if map_output.get('last_object_clicked'):
-            clicked_lat = map_output['last_object_clicked']['lat']
-            clicked_lon = map_output['last_object_clicked']['lng']
+            c_lat = map_output['last_object_clicked']['lat']
+            c_lon = map_output['last_object_clicked']['lng']
         elif map_output.get('last_clicked'):
-            clicked_lat = map_output['last_clicked']['lat']
-            clicked_lon = map_output['last_clicked']['lng']
+            c_lat = map_output['last_clicked']['lat']
+            c_lon = map_output['last_clicked']['lng']
+        
+        if c_lat is not None and c_lon is not None:
+            st.session_state.clicked_lat = c_lat
+            st.session_state.clicked_lon = c_lon
+            st.rerun()
+else:
+    # 화면 분할 레이아웃 (좌측: 지도 / 우측: 상세 정보)
+    col1, col2 = st.columns([1.5, 1])
+    
+    with col1:
+        st.subheader("📍 매체 위치 맵")
+        m = create_map()
+        map_output = st_folium(m, width=700, height=600)
+        
+        # 분할 화면 상태에서도 다른 마커 클릭 시 정보 갱신
+        if map_output:
+            c_lat, c_lon = None, None
+            if map_output.get('last_object_clicked'):
+                c_lat = map_output['last_object_clicked']['lat']
+                c_lon = map_output['last_object_clicked']['lng']
+            elif map_output.get('last_clicked'):
+                c_lat = map_output['last_clicked']['lat']
+                c_lon = map_output['last_clicked']['lng']
+            
+            if c_lat is not None and c_lon is not None:
+                if st.session_state.clicked_lat != c_lat or st.session_state.clicked_lon != c_lon:
+                    st.session_state.clicked_lat = c_lat
+                    st.session_state.clicked_lon = c_lon
+                    st.rerun()
 
-    if clicked_lat is not None and clicked_lon is not None:
+    with col2:
+        st.subheader("📋 매체 상세 정보")
+        
         matched = map_data[
-            (map_data['LAT'].round(4) == round(clicked_lat, 4)) & 
-            (map_data['LON'].round(4) == round(clicked_lon, 4))
+            (map_data['LAT'].round(4) == round(st.session_state.clicked_lat, 4)) & 
+            (map_data['LON'].round(4) == round(st.session_state.clicked_lon, 4))
         ]
         
         if not matched.empty:
@@ -145,12 +179,12 @@ with col2:
                     st.markdown(f"### 🏷️ {row.get('NAME', '')}")
                     st.write(f"**유형:** {row.get('TYPE', '')}")
                     st.write(f"**단가:** {row.get('PRICE', '')} 원")
-                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")  # 단가 기준 (PERIOD) 추가
+                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")  # 단가 기준 (PERIOD) 정보 추가
                     st.write(f"**합/불법:** {row.get('LEGAL', '')}")
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
                     
-                    # 💡 ID 매칭 및 PIL을 통한 안전한 이미지 로딩 (깨짐 방지)
+                    # 💡 ID 매칭 및 PIL을 통한 안전한 이미지 로딩 (깨짐 방지 및 RGB 변환)
                     try:
                         raw_id = row.get('ID', '')
                         id_str = str(raw_id).strip()
@@ -187,7 +221,6 @@ with col2:
                                 with img_cols[img_idx % 3]:
                                     try:
                                         img = Image.open(img_path)
-                                        # 이미지 포맷 깨짐 방지를 위해 RGB 모드로 강제 변환
                                         if img.mode != 'RGB':
                                             img = img.convert('RGB')
                                         st.image(img, use_container_width=True)
@@ -201,5 +234,3 @@ with col2:
                     st.markdown("---")
         else:
             st.info("해당 위치의 매체 정보를 찾을 수 없습니다.")
-    else:
-        st.info("👈 좌측 지도에서 마커를 클릭하시면 상세 정보와 이미지가 여기에 나타납니다.")
