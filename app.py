@@ -101,7 +101,7 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# 이미지 경로를 찾아 Base64 썸네일로 변환하는 함수 (호버링 프리뷰용 - 넉넉한 크기)
+# 이미지 경로를 찾아 Base64 썸네일로 변환하는 함수 (호버링 프리뷰용)
 def get_thumbnail_base64(row_item):
     try:
         raw_id = row_item.get('ID', '')
@@ -128,7 +128,7 @@ def get_thumbnail_base64(row_item):
                        name_no_ext.startswith(id_str_raw + '-'):
                         img_path = os.path.join(IMAGE_DIR, f)
                         with Image.open(img_path) as img:
-                            img.thumbnail((240, 180))  # 💡 프리뷰 이미지 크기 확대
+                            img.thumbnail((240, 180))
                             if img.mode != 'RGB':
                                 img = img.convert('RGB')
                             buffered = BytesIO()
@@ -158,15 +158,11 @@ def create_map():
         thumb_b64 = get_thumbnail_base64(group.iloc[0])
         
         if len(group) > 1:
-            names = "<br>".join([f"• {name}" for name in group['NAME'].astype(str)])
-            popup_html = f"<b>동일 위치 매체 ({len(group)}개)</b><br>{names}"
             tooltip_title = f"{group['NAME'].iloc[0]} 외 {len(group)-1}개"
         else:
-            name = group['NAME'].iloc[0]
-            popup_html = f"<b>{name}</b>"
-            tooltip_title = name
+            tooltip_title = group['NAME'].iloc[0]
 
-        # 💡 호버링 툴팁 HTML (눈에 띄는 큼직한 프리뷰 카드 디자인)
+        # 💡 깔끔한 호버링 툴팁 HTML (이름 + 대표 이미지 프리뷰)
         tooltip_html = f"""
         <div style="text-align: center; font-family: sans-serif; padding: 4px; background: white; border-radius: 6px;">
             <b style="font-size: 13px; color: #333;">{tooltip_title}</b><br>
@@ -190,11 +186,11 @@ def create_map():
         
         custom_icon = folium.DivIcon(html=html_content, icon_size=(30, 30), icon_anchor=(15, 15))
         
+        # 💡 popup을 완전히 제거하여 클릭 시 불필요한 팝업창이 뜨지 않고 호버링 프리뷰와 충돌하지 않도록 수정
         folium.Marker(
             [lat, lon],
             icon=custom_icon,
-            tooltip=tooltip,
-            popup=folium.Popup(popup_html, max_width=300)
+            tooltip=tooltip
         ).add_to(m)
         
     return m
@@ -203,9 +199,9 @@ def create_map():
 if 'map_obj' not in st.session_state:
     st.session_state.map_obj = create_map()
 
-# 💡 동적 레이아웃 처리 (클릭 전: 전체화면 지도 / 클릭 후: 화면 분할)
+# 💡 1단계: 마커가 선택되지 않은 초기 상태 (전체화면 지도 단독 노출)
 if st.session_state.clicked_lat is None:
-    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 확대 미리보기가, 클릭하면 상세 정보가 나타납니다)")
+    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 미리보기가, 클릭하면 상세 정보가 나타납니다)")
     map_output = st_folium(
         st.session_state.map_obj, 
         width=1300, 
@@ -213,22 +209,24 @@ if st.session_state.clicked_lat is None:
         returned_objects=['last_clicked']
     )
     
-    # 💡 좌표 근접 매칭 방식으로 클릭 감지 신뢰도 대폭 향상
+    # 지도 클릭 시 가장 가까운 마커의 좌표를 찾아 상세 정보 패널 활성화
     if map_output and map_output.get('last_clicked'):
         c_lat = map_output['last_clicked']['lat']
         c_lon = map_output['last_clicked']['lng']
         
-        unique_coords = map_data[['LAT', 'LON']].drop_duplicates()
-        unique_coords['dist'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-        closest = unique_coords.loc[unique_coords['dist'].idxmin()]
+        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+        unique_coords['lat_diff'] = abs(unique_coords['LAT'] - c_lat)
+        unique_coords['lon_diff'] = abs(unique_coords['LON'] - c_lon)
+        unique_coords['total_diff'] = unique_coords['lat_diff'] + unique_coords['lon_diff']
         
-        if closest['dist'] < 0.0008:  # 근접 허용 범위 내 클릭 시 인식
+        closest = unique_coords.loc[unique_coords['total_diff'].idxmin()]
+        if closest['total_diff'] < 0.003:  # 클릭 근접 허용 범위
             st.session_state.clicked_lat = closest['LAT']
             st.session_state.clicked_lon = closest['LON']
             st.rerun()
 
 else:
-    # 💡 마커가 선택된 경우에만 2분할 뷰 활성화
+    # 💡 2단계: 마커가 클릭된 이후에만 2분할 레이아웃으로 전환
     col1, col2 = st.columns([1.6, 1])
     
     with col1:
@@ -244,11 +242,13 @@ else:
             c_lat = map_output['last_clicked']['lat']
             c_lon = map_output['last_clicked']['lng']
             
-            unique_coords = map_data[['LAT', 'LON']].drop_duplicates()
-            unique_coords['dist'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-            closest = unique_coords.loc[unique_coords['dist'].idxmin()]
+            unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+            unique_coords['lat_diff'] = abs(unique_coords['LAT'] - c_lat)
+            unique_coords['lon_diff'] = abs(unique_coords['LON'] - c_lon)
+            unique_coords['total_diff'] = unique_coords['lat_diff'] + unique_coords['lon_diff']
             
-            if closest['dist'] < 0.0008:
+            closest = unique_coords.loc[unique_coords['total_diff'].idxmin()]
+            if closest['total_diff'] < 0.003:
                 if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
                     st.session_state.clicked_lat = closest['LAT']
                     st.session_state.clicked_lon = closest['LON']
