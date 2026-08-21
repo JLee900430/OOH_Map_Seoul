@@ -149,7 +149,7 @@ def create_map():
         
     return m
 
-# 💡 지도 객체를 session_state에 캐싱하여 매번 새로 만들지 않고 재사용 (속도 극대화)
+# 지도 객체를 session_state에 캐싱
 if 'map_obj' not in st.session_state:
     st.session_state.map_obj = create_map()
 
@@ -158,23 +158,22 @@ col1, col2 = st.columns([1.6, 1])
 
 with col1:
     st.subheader("📍 매체 위치 맵")
-    # 캐싱된 지도 객체를 사용하여 렌더링 속도 대폭 향상
-    map_output = st_folium(st.session_state.map_obj, width=700, height=650)
+    # 💡 returned_objects를 마커 클릭 시에만 반응하도록 제한하여 지도 휨/튕김 현상 원천 차단
+    map_output = st_folium(
+        st.session_state.map_obj, 
+        width=700, 
+        height=650, 
+        returned_objects=['last_object_clicked']
+    )
     
-    if map_output:
-        c_lat, c_lon = None, None
-        if map_output.get('last_object_clicked'):
-            c_lat = map_output['last_object_clicked']['lat']
-            c_lon = map_output['last_object_clicked']['lng']
-        elif map_output.get('last_clicked'):
-            c_lat = map_output['last_clicked']['lat']
-            c_lon = map_output['last_clicked']['lng']
+    if map_output and map_output.get('last_object_clicked'):
+        c_lat = map_output['last_object_clicked']['lat']
+        c_lon = map_output['last_object_clicked']['lng']
         
-        if c_lat is not None and c_lon is not None:
-            if st.session_state.clicked_lat != c_lat or st.session_state.clicked_lon != c_lon:
-                st.session_state.clicked_lat = c_lat
-                st.session_state.clicked_lon = c_lon
-                st.rerun()
+        if st.session_state.clicked_lat != c_lat or st.session_state.clicked_lon != c_lon:
+            st.session_state.clicked_lat = c_lat
+            st.session_state.clicked_lon = c_lon
+            st.rerun()
 
 with col2:
     st.subheader("📋 매체 상세 정보")
