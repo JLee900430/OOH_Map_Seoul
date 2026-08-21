@@ -93,18 +93,17 @@ map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
-# Session State로 선택된 마커 위치 관리 (초기에는 None)
+# Session State로 선택된 마커 위치 관리
 if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# Folium 지도 생성 공통 함수 (타입별 색상 및 불법 뱃지 아이콘 적용)
+# Folium 지도 생성 함수
 def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
-        # 1. 타입 분석 (LED, STATIC, LED + STATIC)
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
         
@@ -115,10 +114,8 @@ def create_map():
         else:
             bg_color = '#2ecc71'  # 초록색 (STATIC)
             
-        # 2. 불법 여부 확인
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 3. 팝업 및 툴팁 텍스트 설정
         if len(group) > 1:
             names = "<br>".join([f"• {name}" for name in group['NAME'].astype(str)])
             popup_html = f"<b>동일 위치 매체 ({len(group)}개)</b><br>{names}"
@@ -128,7 +125,6 @@ def create_map():
             popup_html = f"<b>{name}</b>"
             tooltip_text = name
 
-        # 4. 커스텀 HTML 아이콘 (DivIcon) 생성: 색상 원형 + 불법 뱃지
         badge_html = ''
         if is_illegal:
             badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>'
@@ -142,11 +138,7 @@ def create_map():
         </div>
         """
         
-        custom_icon = folium.DivIcon(
-            html=html_content,
-            icon_size=(30, 30),
-            icon_anchor=(15, 15)
-        )
+        custom_icon = folium.DivIcon(html=html_content, icon_size=(30, 30), icon_anchor=(15, 15))
         
         folium.Marker(
             [lat, lon],
@@ -157,11 +149,13 @@ def create_map():
         
     return m
 
-# 3. 레이아웃 처리 (클릭 전: 전체화면 지도 / 클릭 후: 화면 분할)
-if st.session_state.clicked_lat is None:
-    st.subheader("📍 매체 위치 맵 (마커를 클릭하면 상세 정보가 나타납니다)")
+# 💡 고정 2분할 레이아웃 적용 (지도가 매번 통째로 리렌더링되지 않아 훨씬 빠릅니다)
+col1, col2 = st.columns([1.6, 1])
+
+with col1:
+    st.subheader("📍 매체 위치 맵")
     m = create_map()
-    map_output = st_folium(m, width=1200, height=650, use_container_width=True)
+    map_output = st_folium(m, width=700, height=650)
     
     if map_output:
         c_lat, c_lon = None, None
@@ -173,42 +167,20 @@ if st.session_state.clicked_lat is None:
             c_lon = map_output['last_clicked']['lng']
         
         if c_lat is not None and c_lon is not None:
-            st.session_state.clicked_lat = c_lat
-            st.session_state.clicked_lon = c_lon
-            st.rerun()
-else:
-    # 화면 분할 레이아웃 (좌측: 지도 / 우측: 상세 정보)
-    col1, col2 = st.columns([1.5, 1])
-    
-    with col1:
-        st.subheader("📍 매체 위치 맵")
-        m = create_map()
-        map_output = st_folium(m, width=700, height=600)
-        
-        if map_output:
-            c_lat, c_lon = None, None
-            if map_output.get('last_object_clicked'):
-                c_lat = map_output['last_object_clicked']['lat']
-                c_lon = map_output['last_object_clicked']['lng']
-            elif map_output.get('last_clicked'):
-                c_lat = map_output['last_clicked']['lat']
-                c_lon = map_output['last_clicked']['lng']
-            
-            if c_lat is not None and c_lon is not None:
-                if st.session_state.clicked_lat != c_lat or st.session_state.clicked_lon != c_lon:
-                    st.session_state.clicked_lat = c_lat
-                    st.session_state.clicked_lon = c_lon
-                    st.rerun()
+            if st.session_state.clicked_lat != c_lat or st.session_state.clicked_lon != c_lon:
+                st.session_state.clicked_lat = c_lat
+                st.session_state.clicked_lon = c_lon
+                st.rerun()
 
-    with col2:
-        # 💡 상세 정보 창 닫기 버튼 추가
-        if st.button("❌ 상세 정보 닫기 (지도 전체보기)", use_container_width=True):
+with col2:
+    st.subheader("📋 매체 상세 정보")
+    
+    if st.session_state.clicked_lat is not None:
+        if st.button("❌ 상세 정보 닫기", use_container_width=True):
             st.session_state.clicked_lat = None
             st.session_state.clicked_lon = None
             st.rerun()
-
-        st.subheader("📋 매체 상세 정보")
-        
+            
         matched = map_data[
             (map_data['LAT'].round(4) == round(st.session_state.clicked_lat, 4)) & 
             (map_data['LON'].round(4) == round(st.session_state.clicked_lon, 4))
@@ -275,3 +247,5 @@ else:
                     st.markdown("---")
         else:
             st.info("해당 위치의 매체 정보를 찾을 수 없습니다.")
+    else:
+        st.info("👈 좌측 지도에서 마커를 클릭하시면 상세 정보와 이미지가 여기에 나타납니다.")
