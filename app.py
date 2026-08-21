@@ -14,6 +14,9 @@ import folium
 # 페이지 설정 (와이드 모드)
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
+# 타이틀 설정
+st.title("🏙️ OOH Media in SEOUL")
+
 # 0. app.py가 위치한 절대 경로를 기준으로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -82,10 +85,6 @@ if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
-if 'map_center' not in st.session_state:
-    st.session_state.map_center = [37.5665, 126.9780]
-if 'map_zoom' not in st.session_state:
-    st.session_state.map_zoom = 11
 
 # 비상용 사이드바 직접 선택 기능
 st.sidebar.markdown("---")
@@ -98,11 +97,9 @@ if selected_media != "선택 안 함":
     if st.session_state.clicked_lat != target_row['LAT'] or st.session_state.clicked_lon != target_row['LON']:
         st.session_state.clicked_lat = target_row['LAT']
         st.session_state.clicked_lon = target_row['LON']
-        st.session_state.map_center = [target_row['LAT'], target_row['LON']]
-        st.session_state.map_zoom = 14
         st.rerun()
 
-# 💡 [속도 극대화] 폴더 내 이미지를 앱 시작 시 단 1번만 메모리에 캐싱
+# 💡 폴더 내 이미지 캐싱
 @st.cache_data
 def build_image_map(img_dir):
     img_map = {}
@@ -150,11 +147,12 @@ def find_thumbnail_for_id(raw_id):
         pass
     return None
 
-# Folium 지도 생성 함수 (좌상단 타이틀 & 가독성 높은 범례 배치)
-def create_map(center, zoom):
-    m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB positron')
+# Folium 지도 생성 함수 (좌상단 범례 & 원상복구된 마커 컬러 규칙)
+@st.cache_resource
+def create_map(data_hash, img_dir):
+    m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 💡 좌상단 가독성 좋은 범례 및 타이틀 박스
+    # 좌상단 가독성 좋은 범례
     title_legend_html = """
     <div style="position: fixed; 
                 top: 15px; left: 60px; width: 220px; height: 135px; 
@@ -174,7 +172,7 @@ def create_map(center, zoom):
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
         
-        # 마커 컬러 규칙: LED, STATIC, LED + STATIC
+        # 마커 컬러 규칙 (LED, STATIC, LED + STATIC)
         if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
             bg_color = '#9b59b6'  # 보라색
         elif 'LED' in type_str:
@@ -184,7 +182,7 @@ def create_map(center, zoom):
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 💡 동일 위치 매체가 여러 개인 경우 호버링 프리뷰에 모두 표시
+        # 동일 위치 다중 매체 호버링 지원
         tooltip_items_html = ""
         for _, row in group.iterrows():
             m_name = row.get('NAME', '')
@@ -231,55 +229,36 @@ def create_map(center, zoom):
         
     return m
 
-# 슬라이드 애니메이션 스타일 주입
-st.markdown("""
-<style>
-@keyframes slideInRight {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-}
-.slide-drawer {
-    animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-</style>
-""", unsafe_allow_html=True)
+map_obj = create_map(len(map_data), IMAGE_DIR)
 
-# 💡 고정 3.5:1.5 레이아웃 (지도 영역 크기가 변하지 않아 줌/위치 리셋 및 딜레이 원천 차단)
-col_map, col_detail = st.columns([3.5, 1.5] if st.session_state.clicked_lat is not None else [5, 0.001])
+# 💡 고정 2분할 레이아웃 적용 (지도가 절대 다시 로딩되거나 줌이 리셋되지 않음)
+col_map, col_detail = st.columns([3.8, 1.2])
 
 with col_map:
-    m = create_map(st.session_state.map_center, st.session_state.map_zoom)
+    # 💡 returned_objects에서 center와 zoom을 제외하여 줌/팬 시 새로고침 원천 차단
     map_output = st_folium(
-        m, 
+        map_obj, 
         width="100%", 
-        height=780, 
-        returned_objects=['last_clicked', 'center', 'zoom'],
+        height=800, 
+        returned_objects=['last_clicked'],
         key="main_map"
     )
     
-    if map_output:
-        if 'center' in map_output and map_output['center']:
-            st.session_state.map_center = [map_output['center']['lat'], map_output['center']['lng']]
-        if 'zoom' in map_output and map_output['zoom']:
-            st.session_state.map_zoom = map_output['zoom']
-
-        if map_output.get('last_clicked'):
-            c_lat = map_output['last_clicked']['lat']
-            c_lon = map_output['last_clicked']['lng']
-            
-            unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-            unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-            closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
-            
-            if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
-                st.session_state.clicked_lat = closest['LAT']
-                st.session_state.clicked_lon = closest['LON']
-                st.rerun()
-
-if st.session_state.clicked_lat is not None:
-    with col_detail:
-        st.markdown('<div class="slide-drawer">', unsafe_allow_html=True)
+    if map_output and map_output.get('last_clicked'):
+        c_lat = map_output['last_clicked']['lat']
+        c_lon = map_output['last_clicked']['lng']
         
+        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+        closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
+        
+        if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
+            st.session_state.clicked_lat = closest['LAT']
+            st.session_state.clicked_lon = closest['LON']
+            st.rerun()
+
+with col_detail:
+    if st.session_state.clicked_lat is not None:
         if st.button("❌ 상세 정보 닫기", use_container_width=True):
             st.session_state.clicked_lat = None
             st.session_state.clicked_lon = None
@@ -353,5 +332,5 @@ if st.session_state.clicked_lat is not None:
                     st.markdown("---")
         else:
             st.info("해당 위치의 매체 정보를 찾을 수 없습니다.")
-            
-        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.info("👈 좌측 지도에서 마커를 클릭하시면 상세 정보가 여기에 나타납니다.")
