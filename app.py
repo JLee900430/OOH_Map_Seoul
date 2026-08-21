@@ -115,7 +115,7 @@ def create_map():
         else:
             bg_color = '#2ecc71'  # 초록색 (STATIC)
             
-        # 2. 불법 여부 확인 (LEGAL 컬럼에 '불법' 또는 'X' 등이 포함된 경우)
+        # 2. 불법 여부 확인
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
         # 3. 팝업 및 툴팁 텍스트 설정
@@ -163,7 +163,6 @@ if st.session_state.clicked_lat is None:
     m = create_map()
     map_output = st_folium(m, width=1200, height=650, use_container_width=True)
     
-    # 클릭 이벤트 감지 시 세션에 저장 후 리런
     if map_output:
         c_lat, c_lon = None, None
         if map_output.get('last_object_clicked'):
@@ -186,7 +185,6 @@ else:
         m = create_map()
         map_output = st_folium(m, width=700, height=600)
         
-        # 분할 화면 상태에서도 다른 마커 클릭 시 정보 갱신
         if map_output:
             c_lat, c_lon = None, None
             if map_output.get('last_object_clicked'):
@@ -203,6 +201,12 @@ else:
                     st.rerun()
 
     with col2:
+        # 💡 상세 정보 창 닫기 버튼 추가
+        if st.button("❌ 상세 정보 닫기 (지도 전체보기)", use_container_width=True):
+            st.session_state.clicked_lat = None
+            st.session_state.clicked_lon = None
+            st.rerun()
+
         st.subheader("📋 매체 상세 정보")
         
         matched = map_data[
@@ -217,12 +221,11 @@ else:
                     st.markdown(f"### 🏷️ {row.get('NAME', '')}")
                     st.write(f"**유형:** {row.get('TYPE', '')}")
                     st.write(f"**단가:** {row.get('PRICE', '')} 원")
-                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")  # 단가 기준 (PERIOD) 정보
+                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")
                     st.write(f"**합/불법:** {row.get('LEGAL', '')}")
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
                     
-                    # 💡 ID 매칭 및 PIL을 통한 안전한 이미지 로딩 (깨짐 방지 및 RGB 변환)
                     try:
                         raw_id = row.get('ID', '')
                         id_str = str(raw_id).strip()
@@ -231,8 +234,8 @@ else:
                         
                         try:
                             id_val = int(float(id_str))
-                            id_str_z3 = str(id_val).zfill(3) # 예: 001
-                            id_str_raw = str(id_val)         # 예: 1
+                            id_str_z3 = str(id_val).zfill(3)
+                            id_str_raw = str(id_val)
                         except:
                             id_str_z3 = id_str
                             id_str_raw = id_str
