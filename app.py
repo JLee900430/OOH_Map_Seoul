@@ -77,7 +77,7 @@ map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다.")
 
-# 💡 Session State 초기화 (튕김 방지를 위한 핵심 상태값 추가)
+# 💡 Session State 초기화
 if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
@@ -98,17 +98,17 @@ def build_image_map(img_dir):
 
 IMAGE_MAP = build_image_map(IMAGE_DIR)
 
-# 💡 [속도 최적화] 썸네일 이미지 크기를 줄이고, 고효율 JPEG로 압축하여 맵 용량 대폭 감소
+# 썸네일 고효율 압축 캐싱
 @st.cache_data
 def get_thumbnail_base64(img_path):
     try:
         if img_path and os.path.exists(img_path):
             with Image.open(img_path) as img:
-                img.thumbnail((300, 225))  # 크기 최적화
+                img.thumbnail((300, 225))
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 buffered = BytesIO()
-                img.save(buffered, format="JPEG", quality=60) # 압축률 조정으로 로딩 속도 향상
+                img.save(buffered, format="JPEG", quality=60)
                 return base64.b64encode(buffered.getvalue()).decode()
     except Exception:
         pass
@@ -134,12 +134,11 @@ def find_thumbnail_for_id(raw_id):
         pass
     return None
 
-# 💡 [호버링 복구 완료] 정상 작동하던 2x2 동적 프리뷰 및 마커 원상복구
+# 💡 지도 생성 함수 캐싱 (최초 1회만 로딩)
 @st.cache_resource
 def create_map(data_hash, img_dir):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 좌상단 타이틀 & 범례
     title_legend_html = """
     <div style="position: fixed; 
                 top: 15px; left: 60px; width: 220px; height: 135px; 
@@ -159,7 +158,6 @@ def create_map(data_hash, img_dir):
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
         
-        # 마커 색상 규칙
         if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
             bg_color = '#9b59b6'
         elif 'LED' in type_str:
@@ -169,7 +167,7 @@ def create_map(data_hash, img_dir):
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 2x2 그리드 동적 프리뷰 유지 (스크롤 없이 확장)
+        # 2x2 그리드 동적 프리뷰
         tooltip_items_html = ""
         for _, row in group.iterrows():
             m_name = row.get('NAME', '')
@@ -202,21 +200,25 @@ def create_map(data_hash, img_dir):
         if is_illegal:
             badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>'
 
-        # 투명 마커 해킹 제거 및 원래 HTML 복구 (호버링 100% 정상 작동)
+        # 투명 마커 해킹 유지 (클릭 100% 인식 보장)
         html_content = f"""
-        <div style="position: relative; display: inline-block; pointer-events: auto; cursor: pointer;">
+        <div style="position: relative; pointer-events: none;">
             <div style="background-color: {bg_color}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px;">
                 {len(group) if len(group) > 1 else '📍'}
             </div>
             {badge_html}
         </div>
         """
-        
         custom_icon = folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16))
         
-        folium.Marker(
-            [lat, lon],
-            icon=custom_icon,
+        folium.Marker([lat, lon], icon=custom_icon).add_to(m)
+        
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=16,
+            stroke=False,
+            fill=True,
+            fill_opacity=0.0,
             tooltip=tooltip
         ).add_to(m)
         
@@ -224,50 +226,43 @@ def create_map(data_hash, img_dir):
 
 map_obj = create_map(len(map_data), IMAGE_DIR)
 
-# 지도를 전체 화면으로 고정 렌더링
+# 전체 화면으로 지도 렌더링
 map_output = st_folium(
     map_obj, 
     width="100%", 
     height=850, 
-    returned_objects=['last_object_clicked', 'last_clicked'], # 오직 클릭만 수신 (줌/이동 시 새로고침 원천 차단)
+    returned_objects=['last_object_clicked'], 
     key="main_fullscreen_map"
 )
 
-# 💡 [튕김 현상 100% 차단] 중복 클릭 무시 및 신규 클릭 시에만 반응하도록 State 락(Lock) 적용
-current_click_data = None
-if map_output:
-    if map_output.get('last_object_clicked'):
-        current_click_data = map_output['last_object_clicked']
-    elif map_output.get('last_clicked'):
-        current_click_data = map_output['last_clicked']
+# 💡 [핵심 최적화] st.rerun()을 완전히 제거하여 지도가 튕기는(줌 풀림) 현상을 원천 차단!
+current_click_data = map_output.get('last_object_clicked') if map_output else None
 
-# 이전에 누른 클릭과 다른 '새로운 클릭'이 들어왔을 때만 처리
 if current_click_data and current_click_data != st.session_state.last_map_click_data:
     st.session_state.last_map_click_data = current_click_data
     
     c_lat = current_click_data['lat']
     c_lon = current_click_data['lng']
     
-    # 0.0005 범위 밖의 엄한 곳을 클릭한 경우는 무시하여 오류 방지
     unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
     unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
     closest_idx = unique_coords['dist_sq'].idxmin()
     min_dist = unique_coords.loc[closest_idx, 'dist_sq']
     
     if min_dist < 0.0005: 
-        tgt_lat = unique_coords.loc[closest_idx, 'LAT']
-        tgt_lon = unique_coords.loc[closest_idx, 'LON']
-        
-        if st.session_state.clicked_lat != tgt_lat or st.session_state.clicked_lon != tgt_lon:
-            st.session_state.clicked_lat = tgt_lat
-            st.session_state.clicked_lon = tgt_lon
-            st.rerun()
+        st.session_state.clicked_lat = unique_coords.loc[closest_idx, 'LAT']
+        st.session_state.clicked_lon = unique_coords.loc[closest_idx, 'LON']
+        # NOTE: 강제 새로고침(st.rerun) 없이 즉시 다음 줄의 오버레이 창 렌더링으로 부드럽게 넘어갑니다.
 
-# 💡 우측에서 밀려오는 꽉 찬 상세정보 슬라이드 팝업
-drawer_container = st.container()
+# 💡 닫기 버튼용 콜백 함수 (닫을 때도 버벅임 방지)
+def close_drawer():
+    st.session_state.clicked_lat = None
+    st.session_state.clicked_lon = None
+    st.session_state.last_map_click_data = None
 
-with drawer_container:
-    if st.session_state.clicked_lat is not None:
+# 우측 오버레이(팝업) 애니메이션 패널
+if st.session_state.clicked_lat is not None:
+    with st.container():
         st.markdown('<span class="drawer-marker"></span>', unsafe_allow_html=True)
         st.markdown("""
         <style>
@@ -294,11 +289,8 @@ with drawer_container:
         
         col_btn, col_title = st.columns([1, 4])
         with col_btn:
-            # 닫기를 누르면 화면이 초기화되지 않게 처리 (last_map_click_data는 유지)
-            if st.button("❌ 닫기", use_container_width=True, key="close_overlay"):
-                st.session_state.clicked_lat = None
-                st.session_state.clicked_lon = None
-                st.rerun()
+            # 콜백 함수 연동으로 즉각적인 닫기 반응 확보
+            st.button("❌ 닫기", use_container_width=True, key="close_overlay", on_click=close_drawer)
                 
         with col_title:
             st.subheader("📋 매체 상세 정보")
