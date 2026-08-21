@@ -180,13 +180,12 @@ def create_map(data_hash, is_mix_mode):
         """
         
         if is_mix_mode:
-            # 1. 시각적 마커
             folium.Marker(
                 [lat, lon], 
                 icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto')
             ).add_to(m)
-            # 2. 💡 클릭 인식을 100% 보장하는 투명 감지 레이어 (CircleMarker)
+            # 클릭 감지용 투명 레이어
             folium.CircleMarker(
                 [lat, lon],
                 radius=18,
@@ -211,7 +210,6 @@ map_obj = create_map(len(map_data), st.session_state.mix_mode)
 
 if st.session_state.mix_mode:
     col_map, col_mix = st.columns([7, 3])
-    # 💡 투명 CircleMarker와 지도 클릭을 모두 감지하도록 설정
     returned_objects = ['last_object_clicked', 'last_clicked']
 else:
     col_map = st.container()
@@ -223,7 +221,6 @@ with col_map:
         st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
     map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
 
-# 💡 마커 클릭(last_object_clicked) 또는 지도 클릭(last_clicked) 모두 완벽 대응
 clicked_lat, clicked_lon = None, None
 if st.session_state.mix_mode and map_output:
     if map_output.get('last_object_clicked'):
@@ -270,7 +267,8 @@ if st.session_state.mix_mode and col_mix:
                     st.markdown(f"**{item['NAME']}**")
                     st.caption(f"{item['TYPE']} | {item['PRICE']}원")
                 with col_del:
-                    if st.button("❌", key=f>del_{idx}"):
+                    # 💡 오타 수정 완료 (key=f"del_{idx}")
+                    if st.button("❌", key=f"del_{idx}"):
                         st.session_state.mix_list.pop(idx)
                         st.session_state.last_added_coords = None
                         st.rerun()
