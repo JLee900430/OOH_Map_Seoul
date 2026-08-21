@@ -12,8 +12,8 @@ if 'mix_mode' not in st.session_state:
     st.session_state.mix_mode = False
 if 'mix_list' not in st.session_state:
     st.session_state.mix_list = []
-if 'last_added_coords' not in st.session_state:
-    st.session_state.last_added_coords = None
+if 'last_click_key' not in st.session_state:
+    st.session_state.last_click_key = ""
 
 # 상단 헤더 & 모드 전환 버튼
 col_title, col_mix_btn = st.columns([8, 2])
@@ -185,10 +185,10 @@ def create_map(data_hash, is_mix_mode):
                 icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto')
             ).add_to(m)
-            # 클릭 감지용 투명 레이어
+            # 클릭 인식용 투명 레이어 (반경을 넓혀서 클릭하기 쉽게 설정)
             folium.CircleMarker(
                 [lat, lon],
-                radius=18,
+                radius=22,
                 color='transparent',
                 fill=True,
                 fill_color='transparent',
@@ -221,6 +221,7 @@ with col_map:
         st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
     map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
 
+# 💡 개선된 클릭 감지 및 피드백 로직
 clicked_lat, clicked_lon = None, None
 if st.session_state.mix_mode and map_output:
     if map_output.get('last_object_clicked'):
@@ -231,26 +232,34 @@ if st.session_state.mix_mode and map_output:
         clicked_lon = map_output['last_clicked']['lng']
 
 if clicked_lat is not None and clicked_lon is not None:
-    current_click = f"{clicked_lat}_{clicked_lon}"
+    click_key = f"{clicked_lat:.4f}_{clicked_lon:.4f}"
     
-    if current_click != st.session_state.last_added_coords:
+    if click_key != st.session_state.last_click_key:
+        st.session_state.last_click_key = click_key
+        
         unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
         unique_coords['dist_sq'] = (unique_coords['LAT'] - clicked_lat)**2 + (unique_coords['LON'] - clicked_lon)**2
-        closest_idx = unique_coords['dist_sq'].idxmin()
         
-        if unique_coords.loc[closest_idx, 'dist_sq'] < 0.002:
-            lat, lon = unique_coords.loc[closest_idx, 'LAT'], unique_coords.loc[closest_idx, 'LON']
-            matched = map_data[(map_data['LAT'] == lat) & (map_data['LON'] == lon)]
+        if not unique_coords.empty:
+            closest_idx = unique_coords['dist_sq'].idxmin()
+            min_dist = unique_coords.loc[closest_idx, 'dist_sq']
             
-            added_count = 0
-            for _, row in matched.iterrows():
-                if row['NAME'] not in [item['NAME'] for item in st.session_state.mix_list]:
-                    st.session_state.mix_list.append(row.to_dict())
-                    added_count += 1
-            
-            st.session_state.last_added_coords = current_click
-            if added_count > 0:
-                st.rerun()
+            # 오차 허용 범위를 넉넉하게 조정 (0.005)
+            if min_dist < 0.005:
+                lat, lon = unique_coords.loc[closest_idx, 'LAT'], unique_coords.loc[closest_idx, 'LON']
+                matched = map_data[(map_data['LAT'] == lat) & (map_data['LON'] == lon)]
+                
+                added_count = 0
+                for _, row in matched.iterrows():
+                    if row['NAME'] not in [item['NAME'] for item in st.session_state.mix_list]:
+                        st.session_state.mix_list.append(row.to_dict())
+                        added_count += 1
+                
+                if added_count > 0:
+                    st.toast(f"🛒 미디어 믹스에 {added_count}개의 매체가 추가되었습니다!", icon="✅")
+                    st.rerun()
+                else:
+                    st.toast("⚠️ 이미 미디어 믹스 보드에 담긴 매체입니다.", icon="ℹ️")
 
 if st.session_state.mix_mode and col_mix:
     with col_mix:
@@ -267,10 +276,9 @@ if st.session_state.mix_mode and col_mix:
                     st.markdown(f"**{item['NAME']}**")
                     st.caption(f"{item['TYPE']} | {item['PRICE']}원")
                 with col_del:
-                    # 💡 오타 수정 완료 (key=f"del_{idx}")
                     if st.button("❌", key=f"del_{idx}"):
                         st.session_state.mix_list.pop(idx)
-                        st.session_state.last_added_coords = None
+                        st.session_state.last_click_key = "" # 삭제 시 다시 클릭 가능하도록 초기화
                         st.rerun()
                 st.markdown("---")
                 
