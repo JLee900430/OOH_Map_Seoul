@@ -337,7 +337,7 @@ if st.session_state.clicked_lat is not None:
                                 matched_images.append(IMAGE_MAP[candidate])
                         
                         matched_images = sorted(list(set(matched_images)))
-                        
+                    
                         if matched_images:
                             st.markdown(f"**📸 대표 이미지**")
                             for img_path in matched_images:
