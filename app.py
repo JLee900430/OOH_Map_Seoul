@@ -18,7 +18,7 @@ st.sidebar.header("⚙️ 환경 설정")
 KAKAO_API_KEY = st.sidebar.text_input("카카오 API 키", value="9f98264d7ef44f83084608ac07349c0b")
 SHEET_URL = st.sidebar.text_input("구글 시트 CSV 링크", value="https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496")
 
-# 💡 환경 구분 없이 프로젝트 폴더 내의 'image' 폴더를 기본값으로 지정
+# 프로젝트 폴더 내 'image' 폴더를 기본값으로 지정
 DEFAULT_IMG_DIR = "image"
 IMAGE_DIR = st.sidebar.text_input("이미지 폴더 경로", value=DEFAULT_IMG_DIR)
 
@@ -26,12 +26,12 @@ IMAGE_DIR = st.sidebar.text_input("이미지 폴더 경로", value=DEFAULT_IMG_D
 with st.sidebar.expander("🔍 이미지 폴더 진단"):
     st.write(f"현재 인식된 폴더 경로: `{IMAGE_DIR}`")
     if os.path.exists(IMAGE_DIR):
-        found_files = glob.glob(os.path.join(IMAGE_DIR, "*.*"))
+        found_files = os.listdir(IMAGE_DIR)
         st.success(f"폴더 안의 전체 파일 수: {len(found_files)}개")
         if len(found_files) > 0:
-            st.write("샘플 파일명:", [os.path.basename(f) for f in found_files[:5]])
+            st.write("샘플 파일명:", found_files[:5])
         else:
-            st.warning("폴더는 존재하지만 안에 이미지 파일이 없습니다!")
+            st.warning("폴더는 존재하지만 안에 파일이 없습니다! GitHub에 폴더가 통째로 잘 올라갔는지 확인해 주세요.")
     else:
         st.error("지정한 폴더 경로를 찾을 수 없습니다. 경로를 확인해 주세요.")
 
@@ -127,23 +127,36 @@ with col2:
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
                     
-                    # ID 기반 이미지 자동 매핑 (유연한 파일명 패턴 대응)
+                    # 💡 대소문자 무시 + 완벽한 ID 자동 매핑 로직 (os.listdir 기반)
                     try:
                         raw_id = row.get('ID', '')
-                        id_val = int(float(raw_id))  # "105.0" 형태 대비
-                        id_str = str(id_val).zfill(3)  # "105"
+                        id_str = str(raw_id).strip()
+                        if id_str.endswith('.0'):
+                            id_str = id_str[:-2]
                         
-                        patterns = [
-                            os.path.join(IMAGE_DIR, f"{id_str}_*.*"),  # 105_1.jpg 등
-                            os.path.join(IMAGE_DIR, f"{id_str}-*.*"),  # 105-1.jpg 등
-                            os.path.join(IMAGE_DIR, f"{id_str}.*"),    # 105.jpg 등
-                            os.path.join(IMAGE_DIR, f"{id_str}*.*"),   # 105로 시작하는 모든 파일
-                        ]
-                        
+                        try:
+                            id_val = int(float(id_str))
+                            id_str_z3 = str(id_val).zfill(3) # 예: 105
+                            id_str_raw = str(id_val)         # 예: 105
+                        except:
+                            id_str_z3 = id_str
+                            id_str_raw = id_str
+
                         matched_images = []
-                        for p in patterns:
-                            matched_images.extend(glob.glob(p))
-                            
+                        if os.path.exists(IMAGE_DIR):
+                            for f in os.listdir(IMAGE_DIR):
+                                # 이미지 확장자 파일만 대상
+                                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+                                    name_no_ext = os.path.splitext(f)[0]
+                                    # ID로 시작하거나 정확히 일치하는 파일 탐색
+                                    if name_no_ext == id_str_z3 or \
+                                       name_no_ext == id_str_raw or \
+                                       name_no_ext.startswith(id_str_z3 + '_') or \
+                                       name_no_ext.startswith(id_str_raw + '_') or \
+                                       name_no_ext.startswith(id_str_z3 + '-') or \
+                                       name_no_ext.startswith(id_str_raw + '-'):
+                                        matched_images.append(os.path.join(IMAGE_DIR, f))
+                        
                         matched_images = sorted(list(set(matched_images)))
                         
                         if matched_images:
@@ -153,7 +166,7 @@ with col2:
                                 with img_cols[img_idx % 3]:
                                     st.image(img_path, use_container_width=True)
                         else:
-                            st.info(f"ID [{id_str}]에 해당하는 이미지를 폴더에서 찾지 못했습니다.")
+                            st.info(f"ID [{id_str_z3}]에 해당하는 이미지를 폴더에서 찾지 못했습니다.")
                     except Exception as e:
                         st.write(f"이미지 매핑 중 에러 발생: {e}")
                     
