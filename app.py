@@ -3,20 +3,18 @@ import pandas as pd
 import requests
 import io
 import os
-import glob
-import base64
 import numpy as np
-from io import BytesIO
 from PIL import Image
 from streamlit_folium import st_folium
 import folium
 
-# 1. 페이지 설정 (와이드 모드)
+# 1. 페이지 설정 및 초기화
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 st.title("🏙️ OOH Media in SEOUL")
 
-# 2. 경로 및 환경 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 2. 사이드바 설정
 st.sidebar.header("⚙️ 환경 설정")
 KAKAO_API_KEY = st.sidebar.text_input("카카오 API 키", value="9f98264d7ef44f83084608ac07349c0b")
 SHEET_URL = st.sidebar.text_input("구글 시트 CSV 링크", value="https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496")
@@ -24,7 +22,7 @@ user_img_dir = st.sidebar.text_input("이미지 폴더 경로 (비워두면 app.
 
 IMAGE_DIR = user_img_dir if (user_img_dir and os.path.isabs(user_img_dir)) else (os.path.join(BASE_DIR, user_img_dir) if user_img_dir and user_img_dir != "." else BASE_DIR)
 
-# 3. 데이터 로드 및 지오코딩 (캐싱)
+# 3. 구글 시트 데이터 로드
 @st.cache_data(ttl=60)
 def load_data(url):
     res = requests.get(url)
@@ -53,60 +51,26 @@ def get_lat_lon(address, api_key):
     return None, None
 
 if 'LAT' not in df.columns or 'LON' not in df.columns:
-    with st.spinner("최초 1회 주소 좌표 변환 중..."):
+    with st.spinner("주소를 좌표로 변환 중..."):
         df['LAT'], df['LON'] = zip(*df['LOCATION'].apply(lambda x: get_lat_lon(x, KAKAO_API_KEY)))
 
 map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다.")
 
-# 4. 이미지 캐싱 및 썸네일 생성 (속도 최적화)
-@st.cache_data
-def build_image_map(img_dir):
-    img_map = {}
-    if os.path.exists(img_dir):
-        for f in os.listdir(img_dir):
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
-                img_map[os.path.splitext(f)[0]] = os.path.join(img_dir, f)
-    return img_map
+# 4. 메모리 폭발 주범이었던 이미지 사전 로딩 제거! (경량화 핵심)
+if 'clicked_lat' not in st.session_state:
+    st.session_state.clicked_lat = None
+if 'clicked_lon' not in st.session_state:
+    st.session_state.clicked_lon = None
 
-IMAGE_MAP = build_image_map(IMAGE_DIR)
-
-@st.cache_data
-def get_thumbnail_base64(img_path):
-    try:
-        if img_path and os.path.exists(img_path):
-            with Image.open(img_path) as img:
-                img.thumbnail((300, 225))
-                if img.mode != 'RGB': img = img.convert('RGB')
-                buffered = BytesIO()
-                img.save(buffered, format="JPEG", quality=60)
-                return base64.b64encode(buffered.getvalue()).decode()
-    except Exception:
-        pass
-    return None
-
-def find_thumbnail_for_id(raw_id):
-    id_str = str(raw_id).strip()
-    if id_str.endswith('.0'): id_str = id_str[:-2]
-    try:
-        id_val = int(float(id_str))
-        id_str_z3, id_str_raw = str(id_val).zfill(3), str(id_val)
-    except:
-        id_str_z3, id_str_raw = id_str, id_str
-
-    for candidate in [f"{id_str_z3}_A", f"{id_str_raw}_A", f"{id_str_z3}_a", f"{id_str_raw}_a"]:
-        if candidate in IMAGE_MAP:
-            return get_thumbnail_base64(IMAGE_MAP[candidate])
-    return None
-
-# 5. 지도 생성 (호버링 완벽 복구, 튕김 원천 차단)
+# 5. 초경량 지도 생성 함수 (메모리 에러 완벽 차단)
 @st.cache_resource
-def create_map(data_hash, img_dir):
+def create_lightweight_map(data_hash):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 좌상단 타이틀 & 범례
-    title_legend_html = """
+    # 범례 유지
+    legend_html = """
     <div style="position: fixed; top: 15px; left: 60px; width: 220px; height: 135px; background-color: white; z-index:9999; font-size:12px; border:2px solid #ccc; border-radius: 8px; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif; line-height: 1.5;">
       <b style="font-size: 14px; color: #111;">🏙️ OOH Media in SEOUL</b><hr style="margin: 5px 0; border:0; border-top:1px solid #eee;">
       <div><span style="background:#3498db; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> LED</div>
@@ -115,38 +79,34 @@ def create_map(data_hash, img_dir):
       <div><span style="background:#e74c3c; width:12px; height:12px; display:inline-block; border-radius:3px; margin-right:6px; vertical-align: middle;"></span> 불법 매체</div>
     </div>
     """
-    m.get_root().html.add_child(folium.Element(title_legend_html))
+    m.get_root().html.add_child(folium.Element(legend_html))
     
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
+        
         bg_color = '#9b59b6' if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str) else ('#3498db' if 'LED' in type_str else '#2ecc71')
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 정석적인 2x2 그리드 동적 프리뷰
+        # 💡 호버링 이미지를 뺀 '텍스트 전용 툴팁'으로 메모리 최적화
         tooltip_items_html = ""
         for _, row in group.iterrows():
-            thumb_b64 = find_thumbnail_for_id(row.get('ID', ''))
             tooltip_items_html += f"""
-            <div style="background: #fdfdfd; border: 1px solid #e0e0e0; padding: 6px; border-radius: 6px; text-align: left;">
+            <div style="border-bottom: 1px solid #eee; padding: 4px 0;">
                 <b style="font-size: 13px; color: #111;">{row.get('NAME', '')}</b><br>
                 <span style="font-size: 11px; color: #e74c3c; font-weight: bold;">💰 {row.get('PRICE', '')} 원 ({row.get('PERIOD', '')})</span>
-                {f'<br><img src="data:image/jpeg;base64,{thumb_b64}" style="width:100%; height:120px; object-fit:cover; border-radius:4px; margin-top:4px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:10px; color:#888; margin-top:4px;">이미지 없음</div>'}
             </div>
             """
             
-        grid_cols = "repeat(2, 1fr)" if len(group) > 1 else "1fr"
-        container_width = "520px" if len(group) > 1 else "280px"
         tooltip_html = f"""
-        <div style="font-family: sans-serif; padding: 8px; background: white; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.35); width: {container_width};">
-            <div style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 6px; border-bottom: 2px solid #ddd; padding-bottom: 4px;">📍 이 위치의 매체 ({len(group)}개)</div>
-            <div style="display: grid; grid-template-columns: {grid_cols}; gap: 8px;">{tooltip_items_html}</div>
+        <div style="font-family: sans-serif; padding: 8px; background: white; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); width: 260px;">
+            <div style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 4px; border-bottom: 2px solid #ddd; padding-bottom: 4px;">📍 이 위치의 매체 ({len(group)}개)</div>
+            {tooltip_items_html}
         </div>
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
         badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>' if is_illegal else ''
 
-        # 깔끔하고 안정적인 단일 마커 구조
         html_content = f"""
         <div style="position: relative; display: inline-block;">
             <div style="background-color: {bg_color}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px;">
@@ -163,88 +123,73 @@ def create_map(data_hash, img_dir):
         
     return m
 
-map_obj = create_map(len(map_data), IMAGE_DIR)
-
-# 6. 고정 레이아웃 렌더링 (지도가 튕기지 않는 가장 확실한 방법)
-# 좌측에 매우 넓은 지도 영역, 우측에 상세 정보 영역 고정 배치
+# 6. 고정 레이아웃 (7:3 분할로 튕김 100% 방지)
 col_map, col_detail = st.columns([7, 3])
 
 with col_map:
-    # returned_objects=['last_object_clicked'] 설정으로 줌/패닝 시 새로고침 방지
-    map_output = st_folium(
-        map_obj, 
-        width="100%", 
-        height=850, 
-        returned_objects=['last_object_clicked'], 
-        key="main_stable_map"
-    )
-
-# 7. 클릭 이벤트 처리 (st.rerun 없이 자연스럽게 UI 갱신)
-clicked_lat, clicked_lon = None, None
-
-if map_output and map_output.get('last_object_clicked'):
-    c_lat = map_output['last_object_clicked']['lat']
-    c_lon = map_output['last_object_clicked']['lng']
+    map_obj = create_lightweight_map(len(map_data))
+    # returned_objects=['last_clicked']를 통해 클릭만 감지하고 절대 튕기지 않음
+    map_output = st_folium(map_obj, width="100%", height=850, returned_objects=['last_clicked'], key="main_map")
     
-    unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-    unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-    closest_idx = unique_coords['dist_sq'].idxmin()
-    
-    # 허용 오차 내의 마커 클릭만 유효하게 처리
-    if unique_coords.loc[closest_idx, 'dist_sq'] < 0.0005: 
-        clicked_lat = unique_coords.loc[closest_idx, 'LAT']
-        clicked_lon = unique_coords.loc[closest_idx, 'LON']
+    # 클릭 즉시 좌표 갱신 (st.rerun 없이 바로 우측 패널에 데이터 반영)
+    if map_output and map_output.get('last_clicked'):
+        c_lat = map_output['last_clicked']['lat']
+        c_lon = map_output['last_clicked']['lng']
+        
+        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+        closest_idx = unique_coords['dist_sq'].idxmin()
+        
+        if unique_coords.loc[closest_idx, 'dist_sq'] < 0.0005: 
+            st.session_state.clicked_lat = unique_coords.loc[closest_idx, 'LAT']
+            st.session_state.clicked_lon = unique_coords.loc[closest_idx, 'LON']
 
-# 8. 우측 상세 정보 패널 출력
+# 7. 우측 상세 정보 패널 (여기서만 이미지를 동적으로 불러와 메모리를 아낍니다)
 with col_detail:
     st.subheader("📋 매체 상세 정보")
     st.markdown("---")
     
-    if clicked_lat is not None and clicked_lon is not None:
+    if st.session_state.clicked_lat is not None and st.session_state.clicked_lon is not None:
         matched = map_data[
-            np.isclose(map_data['LAT'], clicked_lat, atol=1e-5) & 
-            np.isclose(map_data['LON'], clicked_lon, atol=1e-5)
+            np.isclose(map_data['LAT'], st.session_state.clicked_lat, atol=1e-5) & 
+            np.isclose(map_data['LON'], st.session_state.clicked_lon, atol=1e-5)
         ]
         
         if not matched.empty:
             for _, row in matched.iterrows():
-                with st.container():
-                    st.markdown(f"### 🏷️ {row.get('NAME', '')}")
-                    st.write(f"**유형:** {row.get('TYPE', '')}")
-                    st.write(f"**단가:** {row.get('PRICE', '')} 원")
-                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")
-                    st.write(f"**합/불법:** {row.get('LEGAL', '')}")
-                    st.write(f"**주소:** {row.get('LOCATION', '')}")
-                    st.write(f"**상세:** {row.get('Details', '')}")
-                    
-                    # 팝업 내부 고화질 이미지 매칭
+                st.markdown(f"### 🏷️ {row.get('NAME', '')}")
+                st.write(f"**유형:** {row.get('TYPE', '')}")
+                st.write(f"**단가:** {row.get('PRICE', '')} 원 ({row.get('PERIOD', '')})")
+                st.write(f"**합/불법:** {row.get('LEGAL', '')}")
+                st.write(f"**주소:** {row.get('LOCATION', '')}")
+                st.write(f"**상세:** {row.get('Details', '')}")
+                
+                # 우측 패널에서만 직접 이미지를 불러와서 렌더링
+                try:
+                    raw_id = row.get('ID', '')
+                    id_str = str(raw_id).strip()
+                    if id_str.endswith('.0'): id_str = id_str[:-2]
                     try:
-                        raw_id = row.get('ID', '')
-                        id_str = str(raw_id).strip()
-                        if id_str.endswith('.0'): id_str = id_str[:-2]
-                        try:
-                            id_str_z3, id_str_raw = str(int(float(id_str))).zfill(3), str(int(float(id_str)))
-                        except:
-                            id_str_z3, id_str_raw = id_str, id_str
+                        id_str_z3, id_str_raw = str(int(float(id_str))).zfill(3), str(int(float(id_str)))
+                    except:
+                        id_str_z3, id_str_raw = id_str, id_str
 
-                        matched_images = []
-                        for candidate in [f"{id_str_z3}_A", f"{id_str_raw}_A", f"{id_str_z3}_a", f"{id_str_raw}_a"]:
-                            if candidate in IMAGE_MAP:
-                                matched_images.append(IMAGE_MAP[candidate])
-                        
-                        if matched_images:
-                            st.markdown(f"**📸 대표 이미지**")
-                            for img_path in sorted(list(set(matched_images))):
-                                try:
-                                    img = Image.open(img_path)
-                                    if img.mode != 'RGB': img = img.convert('RGB')
-                                    st.image(img, use_container_width=True)
-                                except Exception:
-                                    pass
-                        else:
-                            st.info("대표 이미지가 없습니다.")
-                    except Exception:
-                        pass
-                    st.markdown("---")
+                    found_images = False
+                    if os.path.exists(IMAGE_DIR):
+                        for f in os.listdir(IMAGE_DIR):
+                            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+                                name_no_ext = os.path.splitext(f)[0]
+                                if name_no_ext in [f"{id_str_z3}_A", f"{id_str_raw}_A", f"{id_str_z3}_a", f"{id_str_raw}_a"]:
+                                    img_path = os.path.join(IMAGE_DIR, f)
+                                    st.markdown(f"**📸 대표 이미지**")
+                                    st.image(img_path, use_container_width=True)
+                                    found_images = True
+                                    break
+                    
+                    if not found_images:
+                        st.info("대표 이미지가 없습니다.")
+                except Exception:
+                    pass
+                st.markdown("---")
     else:
-        st.info("👈 지도에서 마커를 클릭하시면 이곳에 상세 정보가 즉시 표시됩니다.")
+        st.info("👈 지도에서 마커를 클릭하시면 이곳에 매체의 상세 정보와 이미지가 표시됩니다.")
