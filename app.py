@@ -84,14 +84,18 @@ def format_text_with_br(val):
 def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 💡 툴팁이 화면 밖으로 나가지 않도록 CSS 스타일 추가 보완
+    # 툴팁 및 팝업 화면 최적화 CSS
     custom_css = """
     <style>
     .leaflet-tooltip {
-        max-width: 340px !important;
+        max-width: 320px !important;
         white-space: normal !important;
         border-radius: 8px !important;
         box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+    }
+    .leaflet-popup-content-wrapper {
+        border-radius: 12px !important;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.25) !important;
     }
     </style>
     """
@@ -127,6 +131,7 @@ def create_map(data_hash, is_mix_mode):
             
             img_urls = get_github_image_urls(row.get('ID', ''))
             
+            # 호버링 툴팁용 작은 이미지
             img_tag_small = f'<br><img src="{img_urls[0]}" style="width:100%; height:80px; object-fit:cover; border-radius:4px; margin-top:4px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
             tooltip_items += f"""
             <div style="background: #fdfdfd; border: 1px solid #e0e0e0; padding: 6px; border-radius: 6px;">
@@ -135,17 +140,18 @@ def create_map(data_hash, is_mix_mode):
             """
             
             if not is_mix_mode:
-                img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; max-height:250px; object-fit:contain; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
-                img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; max-height:250px; object-fit:contain; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
+                # 💡 팝업창 내부 이미지 크기를 대폭 확대 (높이 350px, 선명한 화질 유지)
+                img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:350px; object-fit:cover; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
+                img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:350px; object-fit:cover; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
                 
                 popup_items += f"""
-                <div style="margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 15px;">
-                    <h3 style="margin:0 0 8px 0; color:#111;">🏷️ {m_name}</h3>
-                    <div style="display:flex; justify-content:space-between; font-size:14px; background:#f9f9f9; padding:10px; border-radius:6px; margin-bottom:12px;">
+                <div style="margin-bottom: 25px; border-bottom: 2px solid #eee; padding-bottom: 20px;">
+                    <h2 style="margin:0 0 12px 0; color:#111; font-size:20px;">🏷️ {m_name}</h2>
+                    <div style="display:flex; justify-content:space-between; font-size:15px; background:#f8f9fa; padding:14px; border-radius:8px; margin-bottom:14px;">
                         <div><b>유형:</b> {m_type}<br><b>주소:</b> {m_location}</div>
                         <div style="text-align:right; color:#e74c3c;"><b>단가:</b> {m_price}원<br>({m_period})</div>
                     </div>
-                    <p style="margin:4px 0 12px 0; font-size:13px; color:#555; line-height:1.6;">{m_details}</p>
+                    <p style="margin:4px 0 15px 0; font-size:14px; color:#444; line-height:1.6;">{m_details}</p>
                     <div style="display:flex; justify-content:space-between; gap:10px;">
                         {img_tag_large_1}
                         {img_tag_large_2}
@@ -154,7 +160,6 @@ def create_map(data_hash, is_mix_mode):
                 """
 
         grid_cols = "repeat(2, 1fr)" if len(group) > 1 else "1fr"
-        # 💡 고정 width 대신 max-width를 주어 화면에 유연하게 맞추도록 변경
         tooltip_html = f"""<div style="font-family: sans-serif; padding: 2px; max-width: 320px;"><div style="display: grid; grid-template-columns: {grid_cols}; gap: 5px;">{tooltip_items}</div></div>"""
         
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
@@ -173,12 +178,13 @@ def create_map(data_hash, is_mix_mode):
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto')
             ).add_to(m)
         else:
-            popup_html = f"""<div style="font-family: sans-serif; width: 750px; max-height: 550px; overflow-y: auto; padding: 15px;">{popup_items}</div>"""
+            # 💡 팝업창 전체 크기 확대 (가로 850px, 최대 높이 700px, 스크롤바 제공) 및 화면 밖 잘림 방지 설정 적용
+            popup_html = f"""<div style="font-family: sans-serif; width: 850px; max-height: 700px; overflow-y: auto; padding: 20px;">{popup_items}</div>"""
             folium.Marker(
                 [lat, lon], 
                 icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto'),
-                popup=folium.Popup(popup_html, max_width=800, keep_in_view=True)
+                popup=folium.Popup(popup_html, max_width=900, keep_in_view=True)
             ).add_to(m)
         
     return m
