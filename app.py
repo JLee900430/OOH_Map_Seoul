@@ -9,7 +9,7 @@ import folium
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 st.title("🏙️ OOH Media in SEOUL")
 
-# 카카오 API 및 구글 시트 주소 (하드코딩으로 단순화)
+# 고정 환경 변수
 KAKAO_API_KEY = "9f98264d7ef44f83084608ac07349c0b"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496"
 
@@ -50,17 +50,16 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# 💡 알려주신 GitHub URL 포맷을 그대로 적용하는 함수
 def get_github_image_url(raw_id):
     try:
         id_str = str(raw_id).strip()
         if id_str.endswith('.0'): id_str = id_str[:-2]
         id_str_z3 = str(int(float(id_str))).zfill(3)
-        # 💡 여기에 알려주신 주소 포맷을 완벽히 적용했습니다.
         return f"https://github.com/JLee900430/OOH_Map_Seoul/blob/main/{id_str_z3}_A.jpg?raw=true"
     except Exception:
         return None
 
+# 지도 생성 (투명 마커 꼼수 제거, 순정 상태 적용)
 @st.cache_resource
 def create_map(data_hash):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
@@ -83,11 +82,11 @@ def create_map(data_hash):
         bg_color = '#9b59b6' if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str) else ('#3498db' if 'LED' in type_str else '#2ecc71')
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
+        # 툴팁(호버링) 구성
         tooltip_items_html = ""
         for _, row in group.iterrows():
             m_name, m_price, m_period = row.get('NAME', ''), row.get('PRICE', ''), row.get('PERIOD', '')
             img_url = get_github_image_url(row.get('ID', ''))
-            
             img_tag = f'<br><img src="{img_url}" style="width:100%; height:110px; object-fit:cover; border-radius:4px; margin-top:6px; border:1px solid #ccc;" onerror="this.style.display=\'none\'" />' if img_url else ''
             
             tooltip_items_html += f"""
@@ -110,16 +109,21 @@ def create_map(data_hash):
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
         badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>' if is_illegal else ''
 
+        # 기본 커스텀 마커 (꼼수 속성 모두 제거, 클릭/호버 100% 동작)
         html_content = f"""
-        <div style="position: relative; display: inline-block; pointer-events: none;">
+        <div style="position: relative; display: inline-block;">
             <div style="background-color: {bg_color}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px;">
                 {len(group) if len(group) > 1 else '📍'}
             </div>
             {badge_html}
         </div>
         """
-        folium.Marker([lat, lon], icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16))).add_to(m)
-        folium.CircleMarker(location=[lat, lon], radius=14, color=None, fill=True, fill_color='white', fill_opacity=0.0, tooltip=tooltip).add_to(m)
+        
+        folium.Marker(
+            [lat, lon], 
+            icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
+            tooltip=tooltip
+        ).add_to(m)
         
     return m
 
@@ -128,10 +132,11 @@ map_obj = create_map(len(map_data))
 col_map, col_detail = st.columns([7, 3])
 
 with col_map:
-    map_output = st_folium(map_obj, width="100%", height=850, returned_objects=['last_clicked'], key="main_stable_map")
+    # last_object_clicked 로 클릭 이벤트만 받아옴
+    map_output = st_folium(map_obj, width="100%", height=800, returned_objects=['last_object_clicked'], key="main_stable_map")
 
-if map_output and map_output.get('last_clicked'):
-    c_lat, c_lon = map_output['last_clicked']['lat'], map_output['last_clicked']['lng']
+if map_output and map_output.get('last_object_clicked'):
+    c_lat, c_lon = map_output['last_object_clicked']['lat'], map_output['last_object_clicked']['lng']
     unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
     unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
     closest_idx = unique_coords['dist_sq'].idxmin()
@@ -164,4 +169,4 @@ with col_detail:
                     
                     st.markdown("---")
     else:
-        st.info("👈 지도에서 마커를 클릭하시면 이곳에 상세 정보가 즉시 표시됩니다.")
+        st.info("👈 지도에서 마커를 클릭하시면 이곳에 상세 정보가 표시됩니다.")
