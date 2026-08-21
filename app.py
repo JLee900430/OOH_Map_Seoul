@@ -107,7 +107,6 @@ with col1:
 with col2:
     st.subheader("📋 매체 상세 정보")
     
-    # 💡 마커 클릭(last_object_clicked)과 지도 클릭(last_clicked) 모두 대응하도록 개선
     clicked_lat, clicked_lon = None, None
     
     if map_output:
@@ -119,7 +118,6 @@ with col2:
             clicked_lon = map_output['last_clicked']['lng']
 
     if clicked_lat is not None and clicked_lon is not None:
-        # 클릭한 위치와 가까운 매체 필터링 (소수점 4자리 오차 허용)
         matched = map_data[
             (map_data['LAT'].round(4) == round(clicked_lat, 4)) & 
             (map_data['LON'].round(4) == round(clicked_lon, 4))
@@ -136,16 +134,23 @@ with col2:
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
                     
-                    # 💡 ID 기반 이미지 자동 매핑 (소수점 ID 예외 처리 포함)
+                    # ID 기반 이미지 자동 매핑 (유연한 파일명 패턴 대응)
                     try:
                         raw_id = row.get('ID', '')
-                        id_val = int(float(raw_id))  # "1.0" 같은 소수점 형태의 ID도 안전하게 정수로 변환
-                        id_str = str(id_val).zfill(3)
+                        id_val = int(float(raw_id))  # "105.0" 형태 대비
+                        id_str = str(id_val).zfill(3)  # "105"
                         
-                        search_pattern1 = os.path.join(IMAGE_DIR, f"{id_str}_*.*")
-                        search_pattern2 = os.path.join(IMAGE_DIR, f"{id_val}_*.*")
+                        patterns = [
+                            os.path.join(IMAGE_DIR, f"{id_str}_*.*"),  # 105_1.jpg 등
+                            os.path.join(IMAGE_DIR, f"{id_str}-*.*"),  # 105-1.jpg 등
+                            os.path.join(IMAGE_DIR, f"{id_str}.*"),    # 105.jpg 등
+                            os.path.join(IMAGE_DIR, f"{id_str}*.*"),   # 105로 시작하는 모든 파일
+                        ]
                         
-                        matched_images = glob.glob(search_pattern1) + glob.glob(search_pattern2)
+                        matched_images = []
+                        for p in patterns:
+                            matched_images.extend(glob.glob(p))
+                            
                         matched_images = sorted(list(set(matched_images)))
                         
                         if matched_images:
