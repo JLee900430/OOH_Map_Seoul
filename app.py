@@ -123,8 +123,8 @@ def get_thumbnail_base64(row_item):
             id_str = id_str[:-2]
         try:
             id_val = int(float(id_str))
-            id_str_z3 = str(id_val).zfill(3) # 예: 313
-            id_str_raw = str(id_val)         # 예: 313
+            id_str_z3 = str(id_val).zfill(3)
+            id_str_raw = str(id_val)
         except:
             id_str_z3 = id_str
             id_str_raw = id_str
@@ -133,12 +133,12 @@ def get_thumbnail_base64(row_item):
             for f in os.listdir(IMAGE_DIR):
                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
                     name_no_ext = os.path.splitext(f)[0]
-                    # 💡 정확히 'ID_A' 형태의 파일명만 타겟팅 (예: 313_A, 013_A 등)
+                    # ID_A 형태의 파일명 매칭 (예: 313_A)
                     if name_no_ext == f"{id_str_z3}_A" or name_no_ext == f"{id_str_raw}_A" or \
                        name_no_ext == f"{id_str_z3}_a" or name_no_ext == f"{id_str_raw}_a":
                         img_path = os.path.join(IMAGE_DIR, f)
                         with Image.open(img_path) as img:
-                            img.thumbnail((600, 450))  # 고해상도 대형 썸네일
+                            img.thumbnail((600, 450))
                             if img.mode != 'RGB':
                                 img = img.convert('RGB')
                             buffered = BytesIO()
@@ -165,7 +165,6 @@ def create_map():
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 첫 번째 매체의 ID_A 대표 이미지 가져오기
         thumb_b64 = get_thumbnail_base64(group.iloc[0])
         
         if len(group) > 1:
@@ -173,7 +172,7 @@ def create_map():
         else:
             tooltip_title = group['NAME'].iloc[0]
 
-        # 💡 300% 확대된 대형 호버링 프리뷰 툴팁 디자인
+        # 300% 확대된 대형 호버링 프리뷰 툴팁 디자인
         tooltip_html = f"""
         <div style="text-align: center; font-family: sans-serif; padding: 8px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
             <b style="font-size: 15px; color: #222;">{tooltip_title}</b><br>
@@ -186,8 +185,9 @@ def create_map():
         if is_illegal:
             badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>'
 
+        # 💡 pointer-events 및 cursor 스타일 추가로 클릭 인식 안정화
         html_content = f"""
-        <div style="position: relative; display: inline-block;">
+        <div style="position: relative; display: inline-block; pointer-events: auto; cursor: pointer;">
             <div style="background-color: {bg_color}; width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 10px;">
                 {len(group) if len(group) > 1 else '📍'}
             </div>
@@ -197,7 +197,6 @@ def create_map():
         
         custom_icon = folium.DivIcon(html=html_content, icon_size=(30, 30), icon_anchor=(15, 15))
         
-        # 팝업을 완전히 제거하여 호버링 프리뷰와 충돌 방지
         folium.Marker(
             [lat, lon],
             icon=custom_icon,
@@ -210,6 +209,22 @@ def create_map():
 if 'map_obj' not in st.session_state:
     st.session_state.map_obj = create_map()
 
+# 공통 클릭 처리 함수 (중복 제거 및 무한 루프 방지)
+def handle_map_click(map_output):
+    if map_output and map_output.get('last_clicked'):
+        c_lat = map_output['last_clicked']['lat']
+        c_lon = map_output['last_clicked']['lng']
+        
+        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+        closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
+        
+        # 💡 현재 선택된 좌표와 다를 때만 갱신하여 무한 루프 및 깜빡임 원천 차단
+        if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
+            st.session_state.clicked_lat = closest['LAT']
+            st.session_state.clicked_lon = closest['LON']
+            st.rerun()
+
 # 1단계: 마커가 선택되지 않은 초기 상태 (전체화면 지도 단독 노출)
 if st.session_state.clicked_lat is None:
     st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 대형 미리보기가, 클릭하면 상세 정보가 나타납니다)")
@@ -219,18 +234,7 @@ if st.session_state.clicked_lat is None:
         height=700, 
         returned_objects=['last_clicked']
     )
-    
-    if map_output and map_output.get('last_clicked'):
-        c_lat = map_output['last_clicked']['lat']
-        c_lon = map_output['last_clicked']['lng']
-        
-        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-        
-        closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
-        st.session_state.clicked_lat = closest['LAT']
-        st.session_state.clicked_lon = closest['LON']
-        st.rerun()
+    handle_map_click(map_output)
 
 else:
     # 2단계: 마커가 클릭된 이후에만 2분할 레이아웃으로 전환
@@ -244,19 +248,7 @@ else:
             height=650, 
             returned_objects=['last_clicked']
         )
-        
-        if map_output and map_output.get('last_clicked'):
-            c_lat = map_output['last_clicked']['lat']
-            c_lon = map_output['last_clicked']['lng']
-            
-            unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-            unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-            
-            closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
-            if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
-                st.session_state.clicked_lat = closest['LAT']
-                st.session_state.clicked_lon = closest['LON']
-                st.rerun()
+        handle_map_click(map_output)
 
     with col2:
         st.subheader("📋 매체 상세 정보")
