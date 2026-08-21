@@ -11,16 +11,36 @@ import folium
 st.set_page_config(page_title="OOH Media Mix Dashboard", layout="wide")
 
 st.title("🏙️ OOH Media Mix Dashboard (Auto-Mapping)")
-st.markdown("이미지 폴더 주소만 입력하면, 시트의 `ID`와 파일명을 대조하여 모든 이미지가 자동으로 매핑되는 대시보드입니다.")
+st.markdown("구글 시트 데이터와 폴더 내 이미지 파일명을 `ID`로 자동 매핑하여 보여주는 인터랙티브 미디어 믹스 맵입니다.")
 
 # 사이드바 환경 설정
 st.sidebar.header("⚙️ 환경 설정")
 KAKAO_API_KEY = st.sidebar.text_input("카카오 API 키", value="9f98264d7ef44f83084608ac07349c0b")
 SHEET_URL = st.sidebar.text_input("구글 시트 CSV 링크", value="https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496")
 
-# 사용자 환경에 맞는 기본 이미지 폴더 경로 지정 (필요 시 사이드바에서 수정 가능)
-DEFAULT_IMG_DIR = os.path.expanduser("~/Desktop/이히리기우구추/AI/OOH_Map/image")
+# GitHub 클라우드 환경 및 로컬 환경 경로 자동 감지
+local_img_dir = os.path.expanduser("~/Desktop/이히리기우구추/AI/OOH_Map/image")
+repo_img_dir = os.path.join(os.path.dirname(__file__), "image")
+
+if os.path.exists(repo_img_dir):
+    DEFAULT_IMG_DIR = repo_img_dir
+else:
+    DEFAULT_IMG_DIR = local_img_dir
+
 IMAGE_DIR = st.sidebar.text_input("이미지 폴더 경로", value=DEFAULT_IMG_DIR)
+
+# 디버깅용: 폴더 내 실제 이미지 파일 존재 여부 확인
+with st.sidebar.expander("🔍 이미지 폴더 진단"):
+    st.write(f"현재 인식된 폴더 경로: `{IMAGE_DIR}`")
+    if os.path.exists(IMAGE_DIR):
+        found_files = glob.glob(os.path.join(IMAGE_DIR, "*.*"))
+        st.success(f"폴더 안의 전체 파일 수: {len(found_files)}개")
+        if len(found_files) > 0:
+            st.write("샘플 파일명:", [os.path.basename(f) for f in found_files[:5]])
+        else:
+            st.warning("폴더는 존재하지만 안에 이미지 파일이 없습니다!")
+    else:
+        st.error("지정한 폴더 경로를 찾을 수 없습니다. 경로를 확인해 주세요.")
 
 # 1. 구글 시트 데이터 로드 (캐싱 적용)
 @st.cache_data(ttl=60)
@@ -69,7 +89,6 @@ col1, col2 = st.columns([1.5, 1])
 
 with col1:
     st.subheader("📍 매체 위치 맵")
-    # CartoDB Positron 모던 테마 적용
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
     # 동일 좌표 그룹화 마커 생성
@@ -83,21 +102,27 @@ with col1:
             popup=folium.Popup(popup_html, max_width=300)
         ).add_to(m)
     
-    # Streamlit에서 Folium 지도 렌더링
     map_output = st_folium(m, width=700, height=600)
 
 with col2:
     st.subheader("📋 매체 상세 정보")
     
-    # 지도의 마커를 클릭했을 때 해당 좌표의 매체들을 우측에 리스트업
-    if map_output and map_output.get('last_clicked'):
-        clicked = map_output['last_clicked']
-        lat_clicked, lon_clicked = clicked['lat'], clicked['lng']
-        
+    # 💡 마커 클릭(last_object_clicked)과 지도 클릭(last_clicked) 모두 대응하도록 개선
+    clicked_lat, clicked_lon = None, None
+    
+    if map_output:
+        if map_output.get('last_object_clicked'):
+            clicked_lat = map_output['last_object_clicked']['lat']
+            clicked_lon = map_output['last_object_clicked']['lng']
+        elif map_output.get('last_clicked'):
+            clicked_lat = map_output['last_clicked']['lat']
+            clicked_lon = map_output['last_clicked']['lng']
+
+    if clicked_lat is not None and clicked_lon is not None:
         # 클릭한 위치와 가까운 매체 필터링 (소수점 4자리 오차 허용)
         matched = map_data[
-            (map_data['LAT'].round(4) == round(lat_clicked, 4)) & 
-            (map_data['LON'].round(4) == round(lon_clicked, 4))
+            (map_data['LAT'].round(4) == round(clicked_lat, 4)) & 
+            (map_data['LON'].round(4) == round(clicked_lon, 4))
         ]
         
         if not matched.empty:
@@ -111,17 +136,17 @@ with col2:
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
                     
-                    # 💡 ID를 바탕으로 폴더 안에서 이미지 파일 자동 매핑
+                    # 💡 ID 기반 이미지 자동 매핑 (소수점 ID 예외 처리 포함)
                     try:
-                        id_val = int(row['ID'])
+                        raw_id = row.get('ID', '')
+                        id_val = int(float(raw_id))  # "1.0" 같은 소수점 형태의 ID도 안전하게 정수로 변환
                         id_str = str(id_val).zfill(3)
                         
-                        # 001_1.jpg, 001_2.jpg 형태 및 1_*.jpg 형태 모두 탐색
                         search_pattern1 = os.path.join(IMAGE_DIR, f"{id_str}_*.*")
                         search_pattern2 = os.path.join(IMAGE_DIR, f"{id_val}_*.*")
                         
                         matched_images = glob.glob(search_pattern1) + glob.glob(search_pattern2)
-                        matched_images = sorted(list(set(matched_images))) # 중복 제거 및 정렬
+                        matched_images = sorted(list(set(matched_images)))
                         
                         if matched_images:
                             st.markdown(f"**📸 매체 이미지 ({len(matched_images)}장)**")
@@ -130,9 +155,9 @@ with col2:
                                 with img_cols[img_idx % 3]:
                                     st.image(img_path, use_container_width=True)
                         else:
-                            st.info("해당 ID와 일치하는 이미지가 폴더에 없습니다.")
-                    except Exception:
-                        st.write("이미지 자동 매핑 중 에러가 발생했습니다.")
+                            st.info(f"ID [{id_str}]에 해당하는 이미지를 폴더에서 찾지 못했습니다.")
+                    except Exception as e:
+                        st.write(f"이미지 매핑 중 에러 발생: {e}")
                     
                     st.markdown("---")
         else:
