@@ -150,18 +150,19 @@ def create_map(data_hash, is_mix_mode):
             """
             
             if not is_mix_mode:
-                img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:350px; object-fit:cover; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
-                img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:350px; object-fit:cover; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
+                # 💡 클릭 팝업용 이미지 크기를 1/2로 축소 (높이 170px)
+                img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
+                img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
                 
                 popup_items += f"""
-                <div style="margin-bottom: 25px; border-bottom: 2px solid #eee; padding-bottom: 20px;">
-                    <h2 style="margin:0 0 12px 0; color:#111; font-size:20px;">🏷️ {m_name}</h2>
-                    <div style="display:flex; justify-content:space-between; font-size:15px; background:#f8f9fa; padding:14px; border-radius:8px; margin-bottom:14px;">
+                <div style="margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 12px;">
+                    <h3 style="margin:0 0 8px 0; color:#111; font-size:15px;">🏷️ {m_name}</h3>
+                    <div style="display:flex; justify-content:space-between; font-size:12px; background:#f8f9fa; padding:8px; border-radius:6px; margin-bottom:8px;">
                         <div><b>유형:</b> {m_type}<br><b>주소:</b> {m_location}</div>
                         <div style="text-align:right; color:#e74c3c;"><b>단가:</b> {m_price}원<br>({m_period})</div>
                     </div>
-                    <p style="margin:4px 0 15px 0; font-size:14px; color:#444; line-height:1.6;">{m_details}</p>
-                    <div style="display:flex; justify-content:space-between; gap:10px;">
+                    <p style="margin:2px 0 10px 0; font-size:11px; color:#444; line-height:1.4;">{m_details}</p>
+                    <div style="display:flex; justify-content:space-between; gap:6px;">
                         {img_tag_large_1}
                         {img_tag_large_2}
                     </div>
@@ -186,12 +187,13 @@ def create_map(data_hash, is_mix_mode):
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto')
             ).add_to(m)
         else:
-            popup_html = f"""<div style="font-family: sans-serif; width: 850px; max-height: 700px; overflow-y: auto; padding: 20px;">{popup_items}</div>"""
+            # 💡 클릭 팝업창 크기 1/2 축소 (가로 450px, 최대 높이 380px)
+            popup_html = f"""<div style="font-family: sans-serif; width: 450px; max-height: 380px; overflow-y: auto; padding: 12px;">{popup_items}</div>"""
             folium.Marker(
                 [lat, lon], 
                 icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto'),
-                popup=folium.Popup(popup_html, max_width=900, keep_in_view=True)
+                popup=folium.Popup(popup_html, max_width=500, keep_in_view=True)
             ).add_to(m)
         
     return m
@@ -209,7 +211,6 @@ else:
 with col_map:
     if st.session_state.mix_mode:
         st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
-    # 💡 지도 높이를 화면에 쏙 들어오도록 650으로 최적화
     map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
 
 if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
