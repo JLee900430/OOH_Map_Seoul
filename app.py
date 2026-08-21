@@ -14,7 +14,7 @@ import folium
 # 페이지 설정 (와이드 모드)
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
-# 💡 타이틀 변경 및 불필요한 서브 텍스트 전면 삭제
+# 타이틀 설정
 st.title("🏙️ OOH Media in SEOUL")
 
 # 0. app.py가 위치한 절대 경로를 기준으로 설정
@@ -80,11 +80,15 @@ map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
-# Session State로 선택된 마커 위치 관리
+# Session State 초기화 (선택된 마커 및 지도 중심/줌 유지용)
 if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
+if 'map_center' not in st.session_state:
+    st.session_state.map_center = [37.5665, 126.9780]
+if 'map_zoom' not in st.session_state:
+    st.session_state.map_zoom = 11
 
 # 비상용 사이드바 직접 선택 기능
 st.sidebar.markdown("---")
@@ -97,12 +101,14 @@ if selected_media != "선택 안 함":
     if st.session_state.clicked_lat != target_row['LAT'] or st.session_state.clicked_lon != target_row['LON']:
         st.session_state.clicked_lat = target_row['LAT']
         st.session_state.clicked_lon = target_row['LON']
+        st.session_state.map_center = [target_row['LAT'], target_row['LON']]
+        st.session_state.map_zoom = 14
         st.rerun()
 
-# 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (고해상도 썸네일)
-def get_thumbnail_base64(row_item):
+# 💡 썸네일 변환 함수에 캐싱을 적용하여 속도를 극대화 (지연 시간 원천 차단)
+@st.cache_data
+def get_thumbnail_base64(img_dir, raw_id):
     try:
-        raw_id = row_item.get('ID', '')
         id_str = str(raw_id).strip()
         if id_str.endswith('.0'):
             id_str = id_str[:-2]
@@ -114,15 +120,15 @@ def get_thumbnail_base64(row_item):
             id_str_z3 = id_str
             id_str_raw = id_str
 
-        if os.path.exists(IMAGE_DIR):
-            for f in os.listdir(IMAGE_DIR):
+        if os.path.exists(img_dir):
+            for f in os.listdir(img_dir):
                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
                     name_no_ext = os.path.splitext(f)[0]
                     if name_no_ext == f"{id_str_z3}_A" or name_no_ext == f"{id_str_raw}_A" or \
                        name_no_ext == f"{id_str_z3}_a" or name_no_ext == f"{id_str_raw}_a":
-                        img_path = os.path.join(IMAGE_DIR, f)
+                        img_path = os.path.join(img_dir, f)
                         with Image.open(img_path) as img:
-                            img.thumbnail((800, 600))
+                            img.thumbnail((600, 450))
                             if img.mode != 'RGB':
                                 img = img.convert('RGB')
                             buffered = BytesIO()
@@ -132,14 +138,14 @@ def get_thumbnail_base64(row_item):
         pass
     return None
 
-# Folium 지도 생성 함수 (표준 Marker & Icon 사용으로 클릭 인식 완벽 보장)
-def create_map():
-    m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
+# Folium 지도 생성 함수 (기억된 중심 좌표와 줌 레벨 반영)
+def create_map(center, zoom):
+    m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB positron')
     
-    # 💡 범례에서 '마커 컬러 의미' 행을 삭제하고 컬러 항목만 깔끔하게 배치
+    # 💡 '마커 컬러 의미' 행을 삭제한 깔끔한 범례
     legend_html = """
     <div style="position: fixed; 
-                top: 15px; right: 15px; width: 150px; height: 85px; 
+                top: 15px; right: 15px; width: 145px; height: 80px; 
                 background-color: white; z-index:9999; font-size:11px;
                 border:2px solid grey; border-radius: 6px; padding: 8px;
                 box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif;">
@@ -155,20 +161,19 @@ def create_map():
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
         
-        # 불법 매체인 경우 빨간색 마커 우선 적용
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
         if is_illegal:
             marker_color = 'red'
         elif 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
-            marker_color = 'purple'  # LED + STATIC
+            marker_color = 'purple'
         elif 'LED' in type_str:
-            marker_color = 'blue'    # LED
+            marker_color = 'blue'
         else:
-            marker_color = 'green'   # STATIC
+            marker_color = 'green'
             
         first_row = group.iloc[0]
-        thumb_b64 = get_thumbnail_base64(first_row)
+        thumb_b64 = get_thumbnail_base64(IMAGE_DIR, first_row.get('ID', ''))
         
         if len(group) > 1:
             tooltip_title = f"{first_row['NAME']} 외 {len(group)-1}개"
@@ -178,7 +183,7 @@ def create_map():
         price_val = first_row.get('PRICE', '')
         period_val = first_row.get('PERIOD', '')
 
-        # 💡 대폭 확대된 300% 호버링 프리뷰 (가격, 단가 기준, ID_A 이미지 포함)
+        # 대폭 확대된 300% 호버링 프리뷰 (가격, 단가 기준, ID_A 이미지 포함)
         tooltip_html = f"""
         <div style="text-align: center; font-family: sans-serif; padding: 10px; background: white; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); width: 320px;">
             <b style="font-size: 16px; color: #111;">{tooltip_title}</b><br>
@@ -188,7 +193,6 @@ def create_map():
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
 
-        # 표준 Marker 및 Icon 사용 (클릭 인식 100% 보장)
         folium.Marker(
             [lat, lon],
             icon=folium.Icon(color=marker_color, icon='info-sign', prefix='glyphicon'),
@@ -197,9 +201,16 @@ def create_map():
         
     return m
 
-# 공통 클릭 이벤트 처리 함수 (마커 객체 직접 클릭 감지)
-def handle_map_click(map_output):
+# 공통 클릭 및 상태 업데이트 처리 함수
+def handle_map_output(map_output):
     if map_output:
+        # 지도 중심과 줌 상태 업데이트 저장
+        if 'center' in map_output and map_output['center']:
+            st.session_state.map_center = [map_output['center']['lat'], map_output['center']['lng']]
+        if 'zoom' in map_output and map_output['zoom']:
+            st.session_state.map_zoom = map_output['zoom']
+
+        # 마커 클릭 감지
         clicked_obj = map_output.get('last_object_clicked')
         if clicked_obj and 'lat' in clicked_obj and 'lng' in clicked_obj:
             c_lat = clicked_obj['lat']
@@ -216,29 +227,29 @@ def handle_map_click(map_output):
 
 # 💡 동적 레이아웃: 초기에는 전체화면 지도, 마커 클릭 시에만 2분할 뷰 전환
 if st.session_state.clicked_lat is None:
-    m = create_map()
+    m = create_map(st.session_state.map_center, st.session_state.map_zoom)
     map_output = st_folium(
         m, 
         width=1300, 
         height=750, 
-        returned_objects=['last_object_clicked'],
+        returned_objects=['last_object_clicked', 'center', 'zoom'],
         key="full_map"
     )
-    handle_map_click(map_output)
+    handle_map_output(map_output)
 
 else:
     col1, col2 = st.columns([1.6, 1])
     
     with col1:
-        m = create_map()
+        m = create_map(st.session_state.map_center, st.session_state.map_zoom)
         map_output = st_folium(
             m, 
             width=700, 
             height=680, 
-            returned_objects=['last_object_clicked'],
+            returned_objects=['last_object_clicked', 'center', 'zoom'],
             key="split_map"
         )
-        handle_map_click(map_output)
+        handle_map_output(map_output)
 
     with col2:
         st.subheader("📋 매체 상세 정보")
