@@ -100,14 +100,20 @@ with col1:
     st.subheader("📍 매체 위치 맵")
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 동일 좌표 그룹화 마커 생성
+    # 동일 좌표 그룹화 마커 생성 (겹치는 매체가 있는 경우에만 동일 위치 매체 팝업 표시)
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
-        names = "<br>".join([f"• {name}" for name in group['NAME'].astype(str)])
-        popup_html = f"<b>동일 위치 매체 ({len(group)}개)</b><br>{names}"
+        if len(group) > 1:
+            names = "<br>".join([f"• {name}" for name in group['NAME'].astype(str)])
+            popup_html = f"<b>동일 위치 매체 ({len(group)}개)</b><br>{names}"
+            tooltip_text = f"{group['NAME'].iloc[0]} 외 {len(group)-1}개"
+        else:
+            name = group['NAME'].iloc[0]
+            popup_html = f"<b>{name}</b>"
+            tooltip_text = name
         
         folium.Marker(
             [lat, lon],
-            tooltip=f"{group['NAME'].iloc[0]} 외 {len(group)-1}개" if len(group) > 1 else group['NAME'].iloc[0],
+            tooltip=tooltip_text,
             popup=folium.Popup(popup_html, max_width=300)
         ).add_to(m)
     
@@ -139,7 +145,7 @@ with col2:
                     st.markdown(f"### 🏷️ {row.get('NAME', '')}")
                     st.write(f"**유형:** {row.get('TYPE', '')}")
                     st.write(f"**단가:** {row.get('PRICE', '')} 원")
-                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")  # 💡 단가 기준 (PERIOD) 정보 추가
+                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")  # 단가 기준 (PERIOD) 추가
                     st.write(f"**합/불법:** {row.get('LEGAL', '')}")
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
@@ -180,8 +186,10 @@ with col2:
                             for img_idx, img_path in enumerate(matched_images):
                                 with img_cols[img_idx % 3]:
                                     try:
-                                        # PIL Image로 열어서 로드하면 이미지 깨짐 현상을 방지할 수 있습니다.
                                         img = Image.open(img_path)
+                                        # 이미지 포맷 깨짐 방지를 위해 RGB 모드로 강제 변환
+                                        if img.mode != 'RGB':
+                                            img = img.convert('RGB')
                                         st.image(img, use_container_width=True)
                                     except Exception as img_load_err:
                                         st.error(f"이미지 열기 실패: {os.path.basename(img_path)}")
