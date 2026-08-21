@@ -4,6 +4,7 @@ import requests
 import io
 import os
 import glob
+from PIL import Image
 from streamlit_folium import st_folium
 import folium
 
@@ -21,7 +22,7 @@ st.sidebar.header("⚙️ 환경 설정")
 KAKAO_API_KEY = st.sidebar.text_input("카카오 API 키", value="9f98264d7ef44f83084608ac07349c0b")
 SHEET_URL = st.sidebar.text_input("구글 시트 CSV 링크", value="https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496")
 
-# 💡 수정 포인트: 기본값을 빈 값으로 두어 app.py와 같은 경로를 바라보게 설정
+# 이미지 폴더 경로 (기본값: app.py와 같은 최상위 폴더)
 user_img_dir = st.sidebar.text_input("이미지 폴더 경로 (비워두면 app.py와 같은 경로)", value="")
 
 if not user_img_dir or user_img_dir == ".":
@@ -55,7 +56,6 @@ def load_data(url):
 
 try:
     df = load_data(SHEET_URL)
-    # 디버깅용: 구글 시트 컬럼 확인
     with st.sidebar.expander("🔍 구글 시트 진단"):
         st.write("불러온 컬럼 목록:", list(df.columns))
         st.write(f"전체 행 개수: {len(df)}개")
@@ -90,7 +90,6 @@ if 'LAT' not in df.columns or 'LON' not in df.columns:
 
 map_data = df.dropna(subset=['LAT', 'LON'])
 
-# 💡 마커가 안 뜰 때 확인용 경고 메시지
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
@@ -140,11 +139,12 @@ with col2:
                     st.markdown(f"### 🏷️ {row.get('NAME', '')}")
                     st.write(f"**유형:** {row.get('TYPE', '')}")
                     st.write(f"**단가:** {row.get('PRICE', '')} 원")
+                    st.write(f"**단가 기준:** {row.get('PERIOD', '')}")  # 💡 단가 기준 (PERIOD) 정보 추가
                     st.write(f"**합/불법:** {row.get('LEGAL', '')}")
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
                     
-                    # 💡 ID 매칭 로직 (001_A.jpg, 001_B.jpg 등의 형식 대응)
+                    # 💡 ID 매칭 및 PIL을 통한 안전한 이미지 로딩 (깨짐 방지)
                     try:
                         raw_id = row.get('ID', '')
                         id_str = str(raw_id).strip()
@@ -164,7 +164,6 @@ with col2:
                             for f in os.listdir(IMAGE_DIR):
                                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
                                     name_no_ext = os.path.splitext(f)[0]
-                                    # 001, 001_A, 001-B 등 다양한 파일명 패턴 허용
                                     if name_no_ext == id_str_z3 or \
                                        name_no_ext == id_str_raw or \
                                        name_no_ext.startswith(id_str_z3 + '_') or \
@@ -180,7 +179,12 @@ with col2:
                             img_cols = st.columns(min(len(matched_images), 3))
                             for img_idx, img_path in enumerate(matched_images):
                                 with img_cols[img_idx % 3]:
-                                    st.image(img_path, use_container_width=True)
+                                    try:
+                                        # PIL Image로 열어서 로드하면 이미지 깨짐 현상을 방지할 수 있습니다.
+                                        img = Image.open(img_path)
+                                        st.image(img, use_container_width=True)
+                                    except Exception as img_load_err:
+                                        st.error(f"이미지 열기 실패: {os.path.basename(img_path)}")
                         else:
                             st.info(f"ID [{id_str_z3}]에 해당하는 이미지를 폴더에서 찾지 못했습니다.")
                     except Exception as e:
