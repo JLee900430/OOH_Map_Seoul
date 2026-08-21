@@ -99,7 +99,7 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# Folium 지도 생성 함수
+# Folium 지도 생성 함수 (최초 1회만 실행되도록 캐싱 처리)
 def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
@@ -149,13 +149,17 @@ def create_map():
         
     return m
 
-# 💡 고정 2분할 레이아웃 적용 (지도가 매번 통째로 리렌더링되지 않아 훨씬 빠릅니다)
+# 💡 지도 객체를 session_state에 캐싱하여 매번 새로 만들지 않고 재사용 (속도 극대화)
+if 'map_obj' not in st.session_state:
+    st.session_state.map_obj = create_map()
+
+# 고정 2분할 레이아웃 적용
 col1, col2 = st.columns([1.6, 1])
 
 with col1:
     st.subheader("📍 매체 위치 맵")
-    m = create_map()
-    map_output = st_folium(m, width=700, height=650)
+    # 캐싱된 지도 객체를 사용하여 렌더링 속도 대폭 향상
+    map_output = st_folium(st.session_state.map_obj, width=700, height=650)
     
     if map_output:
         c_lat, c_lon = None, None
