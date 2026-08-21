@@ -185,7 +185,7 @@ def create_map(data_hash, is_mix_mode):
                 icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto')
             ).add_to(m)
-            # 클릭 인식용 투명 레이어 (반경을 넓혀서 클릭하기 쉽게 설정)
+            # 💡 클릭 인식용 투명 레이어
             folium.CircleMarker(
                 [lat, lon],
                 radius=22,
@@ -221,7 +221,7 @@ with col_map:
         st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
     map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
 
-# 💡 개선된 클릭 감지 및 피드백 로직
+# 💡 클릭 감지 및 믹스 추가 로직 (불필요한 st.rerun 제거로 튕김 현상 해결)
 clicked_lat, clicked_lon = None, None
 if st.session_state.mix_mode and map_output:
     if map_output.get('last_object_clicked'):
@@ -244,7 +244,6 @@ if clicked_lat is not None and clicked_lon is not None:
             closest_idx = unique_coords['dist_sq'].idxmin()
             min_dist = unique_coords.loc[closest_idx, 'dist_sq']
             
-            # 오차 허용 범위를 넉넉하게 조정 (0.005)
             if min_dist < 0.005:
                 lat, lon = unique_coords.loc[closest_idx, 'LAT'], unique_coords.loc[closest_idx, 'LON']
                 matched = map_data[(map_data['LAT'] == lat) & (map_data['LON'] == lon)]
@@ -257,7 +256,6 @@ if clicked_lat is not None and clicked_lon is not None:
                 
                 if added_count > 0:
                     st.toast(f"🛒 미디어 믹스에 {added_count}개의 매체가 추가되었습니다!", icon="✅")
-                    st.rerun()
                 else:
                     st.toast("⚠️ 이미 미디어 믹스 보드에 담긴 매체입니다.", icon="ℹ️")
 
@@ -278,7 +276,7 @@ if st.session_state.mix_mode and col_mix:
                 with col_del:
                     if st.button("❌", key=f"del_{idx}"):
                         st.session_state.mix_list.pop(idx)
-                        st.session_state.last_click_key = "" # 삭제 시 다시 클릭 가능하도록 초기화
+                        st.session_state.last_click_key = ""
                         st.rerun()
                 st.markdown("---")
                 
