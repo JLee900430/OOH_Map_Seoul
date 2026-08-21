@@ -15,7 +15,7 @@ if 'mix_list' not in st.session_state:
 if 'last_added_coords' not in st.session_state:
     st.session_state.last_added_coords = None
 
-# 상단 헤더 & 모드 전환 버튼 (직관적으로 배치)
+# 상단 헤더 & 모드 전환 버튼
 col_title, col_mix_btn = st.columns([8, 2])
 with col_title:
     st.title("🏙️ OOH Media in SEOUL" + (" (🛒 믹스 만들기 모드)" if st.session_state.mix_mode else ""))
@@ -23,12 +23,10 @@ with col_title:
 with col_mix_btn:
     st.write("") # 수직 정렬용 여백
     if st.session_state.mix_mode:
-        # 💡 일반 모드로 확실하게 돌아가는 버튼 (눈에 띄게 Primary 색상 적용)
         if st.button("⬅️ 일반 지도로 돌아가기", type="primary", use_container_width=True):
             st.session_state.mix_mode = False
             st.rerun()
     else:
-        # 💡 믹스 모드를 켜는 버튼
         if st.button("🛒 믹스 만들기 켜기", use_container_width=True):
             st.session_state.mix_mode = True
             st.rerun()
@@ -82,10 +80,22 @@ def format_text_with_br(val):
     if pd.isna(val): return ""
     return str(val).replace('\n', '<br>')
 
-# 💡 캐싱 키에 is_mix_mode를 추가하여 모드에 따라 지도를 다르게 렌더링
 @st.cache_resource
 def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
+    
+    # 💡 툴팁이 화면 밖으로 나가지 않도록 CSS 스타일 추가 보완
+    custom_css = """
+    <style>
+    .leaflet-tooltip {
+        max-width: 340px !important;
+        white-space: normal !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+    }
+    </style>
+    """
+    m.get_root().html.add_child(folium.Element(custom_css))
     
     legend_html = """
     <div style="position: fixed; top: 15px; left: 60px; width: 220px; height: 135px; background-color: white; z-index:9999; font-size:12px; border:2px solid #ccc; border-radius: 8px; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
@@ -117,7 +127,6 @@ def create_map(data_hash, is_mix_mode):
             
             img_urls = get_github_image_urls(row.get('ID', ''))
             
-            # 호버링(툴팁)은 모드 상관없이 항상 표시
             img_tag_small = f'<br><img src="{img_urls[0]}" style="width:100%; height:80px; object-fit:cover; border-radius:4px; margin-top:4px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
             tooltip_items += f"""
             <div style="background: #fdfdfd; border: 1px solid #e0e0e0; padding: 6px; border-radius: 6px;">
@@ -125,7 +134,6 @@ def create_map(data_hash, is_mix_mode):
             </div>
             """
             
-            # 팝업(일반 모드에서만 사용)
             if not is_mix_mode:
                 img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; max-height:250px; object-fit:contain; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
                 img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; max-height:250px; object-fit:contain; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
@@ -146,7 +154,8 @@ def create_map(data_hash, is_mix_mode):
                 """
 
         grid_cols = "repeat(2, 1fr)" if len(group) > 1 else "1fr"
-        tooltip_html = f"""<div style="font-family: sans-serif; padding: 5px; width: {400 if len(group) > 1 else 200}px;"><div style="display: grid; grid-template-columns: {grid_cols}; gap: 5px;">{tooltip_items}</div></div>"""
+        # 💡 고정 width 대신 max-width를 주어 화면에 유연하게 맞추도록 변경
+        tooltip_html = f"""<div style="font-family: sans-serif; padding: 2px; max-width: 320px;"><div style="display: grid; grid-template-columns: {grid_cols}; gap: 5px;">{tooltip_items}</div></div>"""
         
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
         
@@ -157,35 +166,31 @@ def create_map(data_hash, is_mix_mode):
         </div>
         """
         
-        # 💡 믹스 모드일 때는 거대한 팝업을 띄우지 않고 클릭만 감지하도록 구성
         if is_mix_mode:
             folium.Marker(
                 [lat, lon], 
                 icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
-                tooltip=folium.Tooltip(tooltip_html, parse_html=True)
+                tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto')
             ).add_to(m)
         else:
             popup_html = f"""<div style="font-family: sans-serif; width: 750px; max-height: 550px; overflow-y: auto; padding: 15px;">{popup_items}</div>"""
             folium.Marker(
                 [lat, lon], 
                 icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
-                tooltip=folium.Tooltip(tooltip_html, parse_html=True),
+                tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto'),
                 popup=folium.Popup(popup_html, max_width=800, keep_in_view=True)
             ).add_to(m)
         
     return m
 
-# 지도 생성 (모드에 따라 캐싱)
 map_obj = create_map(len(map_data), st.session_state.mix_mode)
 
 if st.session_state.mix_mode:
     col_map, col_mix = st.columns([7, 3])
-    # 💡 마커 클릭 이벤트를 정확히 잡아오기 위해 'last_object_clicked' 사용
     returned_objects = ['last_object_clicked']
 else:
     col_map = st.container()
     col_mix = None
-    # 일반 모드는 화면 새로고침 원천 차단
     returned_objects = []
 
 with col_map:
@@ -193,7 +198,6 @@ with col_map:
         st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
     map_output = st_folium(map_obj, width="100%", height=850, returned_objects=returned_objects, key="main_stable_map")
 
-# 💡 믹스에 매체 추가 로직
 if st.session_state.mix_mode and map_output and map_output.get('last_object_clicked'):
     c_lat, c_lon = map_output['last_object_clicked']['lat'], map_output['last_object_clicked']['lng']
     current_click = f"{c_lat}_{c_lon}"
@@ -217,7 +221,6 @@ if st.session_state.mix_mode and map_output and map_output.get('last_object_clic
             if added_count > 0:
                 st.rerun()
 
-# 💡 믹스 보드 출력
 if st.session_state.mix_mode and col_mix:
     with col_mix:
         st.subheader("🛒 미디어 믹스 보드")
