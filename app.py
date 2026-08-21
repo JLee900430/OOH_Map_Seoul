@@ -4,6 +4,8 @@ import requests
 import io
 import os
 import glob
+import base64
+from io import BytesIO
 from PIL import Image
 from streamlit_folium import st_folium
 import folium
@@ -99,7 +101,44 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# Folium 지도 생성 함수 (최초 1회만 실행되도록 캐싱 처리)
+# 이미지 경로를 찾아 Base64 썸네일로 변환하는 함수 (호버링 프리뷰용)
+def get_thumbnail_base64(row_item):
+    try:
+        raw_id = row_item.get('ID', '')
+        id_str = str(raw_id).strip()
+        if id_str.endswith('.0'):
+            id_str = id_str[:-2]
+        try:
+            id_val = int(float(id_str))
+            id_str_z3 = str(id_val).zfill(3)
+            id_str_raw = str(id_val)
+        except:
+            id_str_z3 = id_str
+            id_str_raw = id_str
+
+        if os.path.exists(IMAGE_DIR):
+            for f in os.listdir(IMAGE_DIR):
+                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+                    name_no_ext = os.path.splitext(f)[0]
+                    if name_no_ext == id_str_z3 or \
+                       name_no_ext == id_str_raw or \
+                       name_no_ext.startswith(id_str_z3 + '_') or \
+                       name_no_ext.startswith(id_str_raw + '_') or \
+                       name_no_ext.startswith(id_str_z3 + '-') or \
+                       name_no_ext.startswith(id_str_raw + '-'):
+                        img_path = os.path.join(IMAGE_DIR, f)
+                        with Image.open(img_path) as img:
+                            img.thumbnail((100, 100))
+                            if img.mode != 'RGB':
+                                img = img.convert('RGB')
+                            buffered = BytesIO()
+                            img.save(buffered, format="JPEG")
+                            return base64.b64encode(buffered.getvalue()).decode()
+    except Exception:
+        pass
+    return None
+
+# Folium 지도 생성 함수 (최초 1회만 생성되어 캐싱됨)
 def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
@@ -116,14 +155,26 @@ def create_map():
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
+        # 대표 이미지 썸네일 (첫 번째 매체 기준)
+        thumb_b64 = get_thumbnail_base64(group.iloc[0])
+        
         if len(group) > 1:
             names = "<br>".join([f"• {name}" for name in group['NAME'].astype(str)])
             popup_html = f"<b>동일 위치 매체 ({len(group)}개)</b><br>{names}"
-            tooltip_text = f"{group['NAME'].iloc[0]} 외 {len(group)-1}개"
+            tooltip_title = f"{group['NAME'].iloc[0]} 외 {len(group)-1}개"
         else:
             name = group['NAME'].iloc[0]
             popup_html = f"<b>{name}</b>"
-            tooltip_text = name
+            tooltip_title = name
+
+        # 호버링(Tooltip) HTML 구성 (텍스트 + 대표 이미지 미리보기)
+        tooltip_html = f"""
+        <div style="text-align: center; font-family: sans-serif; padding: 2px;">
+            <b>{tooltip_title}</b><br>
+            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:90px; height:70px; object-fit:cover; border-radius:4px; margin-top:5px; border:1px solid #ddd;" />' if thumb_b64 else ''}
+        </div>
+        """
+        tooltip = folium.Tooltip(tooltip_html, parse_html=True)
 
         badge_html = ''
         if is_illegal:
@@ -143,43 +194,58 @@ def create_map():
         folium.Marker(
             [lat, lon],
             icon=custom_icon,
-            tooltip=tooltip_text,
+            tooltip=tooltip,
             popup=folium.Popup(popup_html, max_width=300)
         ).add_to(m)
         
     return m
 
-# 지도 객체를 session_state에 캐싱
+# 지도 객체를 session_state에 캐싱하여 속도 최적화
 if 'map_obj' not in st.session_state:
     st.session_state.map_obj = create_map()
 
-# 고정 2분할 레이아웃 적용
-col1, col2 = st.columns([1.6, 1])
-
-with col1:
-    st.subheader("📍 매체 위치 맵")
-    # 💡 returned_objects를 마커 클릭 시에만 반응하도록 제한하여 지도 휨/튕김 현상 원천 차단
+# 💡 동적 레이아웃: 마커가 선택되지 않았을 때는 지도를 전체화면으로 출력
+if st.session_state.clicked_lat is None:
+    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 미리보기가, 클릭하면 상세 정보가 나타납니다)")
     map_output = st_folium(
         st.session_state.map_obj, 
-        width=700, 
-        height=650, 
+        width=1200, 
+        height=680, 
         returned_objects=['last_object_clicked']
     )
     
     if map_output and map_output.get('last_object_clicked'):
         c_lat = map_output['last_object_clicked']['lat']
         c_lon = map_output['last_object_clicked']['lng']
-        
-        if st.session_state.clicked_lat != c_lat or st.session_state.clicked_lon != c_lon:
-            st.session_state.clicked_lat = c_lat
-            st.session_state.clicked_lon = c_lon
-            st.rerun()
+        st.session_state.clicked_lat = c_lat
+        st.session_state.clicked_lon = c_lon
+        st.rerun()
 
-with col2:
-    st.subheader("📋 매체 상세 정보")
+else:
+    # 💡 마커가 선택된 경우에만 화면 2분할 레이아웃 적용
+    col1, col2 = st.columns([1.6, 1])
     
-    if st.session_state.clicked_lat is not None:
-        if st.button("❌ 상세 정보 닫기", use_container_width=True):
+    with col1:
+        st.subheader("📍 매체 위치 맵")
+        map_output = st_folium(
+            st.session_state.map_obj, 
+            width=700, 
+            height=650, 
+            returned_objects=['last_object_clicked']
+        )
+        
+        if map_output and map_output.get('last_object_clicked'):
+            c_lat = map_output['last_object_clicked']['lat']
+            c_lon = map_output['last_object_clicked']['lng']
+            if st.session_state.clicked_lat != c_lat or st.session_state.clicked_lon != c_lon:
+                st.session_state.clicked_lat = c_lat
+                st.session_state.clicked_lon = c_lon
+                st.rerun()
+
+    with col2:
+        st.subheader("📋 매체 상세 정보")
+        
+        if st.button("❌ 상세 정보 닫기 (지도 전체보기)", use_container_width=True):
             st.session_state.clicked_lat = None
             st.session_state.clicked_lon = None
             st.rerun()
@@ -250,5 +316,3 @@ with col2:
                     st.markdown("---")
         else:
             st.info("해당 위치의 매체 정보를 찾을 수 없습니다.")
-    else:
-        st.info("👈 좌측 지도에서 마커를 클릭하시면 상세 정보와 이미지가 여기에 나타납니다.")
