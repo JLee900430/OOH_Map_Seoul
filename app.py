@@ -84,7 +84,7 @@ def format_text_with_br(val):
 def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 💡 툴팁 및 팝업 스타일 CSS 최적화
+    # 툴팁 및 팝업 스타일 CSS 최적화
     custom_css = """
     <style>
     .leaflet-tooltip {
@@ -134,7 +134,6 @@ def create_map(data_hash, is_mix_mode):
             
             img_urls = get_github_image_urls(row.get('ID', ''))
             
-            # 💡 호버링 툴팁: 좌측 텍스트 + 우측 가로형 이미지 배치 (안정적인 비율)
             img_tag_small = f'<img src="{img_urls[0]}" style="width: 120px; height: 95px; object-fit: cover; border-radius: 6px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
             
             tooltip_items += f"""
@@ -151,7 +150,6 @@ def create_map(data_hash, is_mix_mode):
             """
             
             if not is_mix_mode:
-                # 클릭 팝업용 대형 이미지
                 img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:350px; object-fit:cover; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
                 img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:350px; object-fit:cover; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
                 
@@ -170,7 +168,6 @@ def create_map(data_hash, is_mix_mode):
                 </div>
                 """
 
-        # 💡 툴팁 컨테이너 너비 지정 및 세로로 쏠리는 현상 방지
         tooltip_html = f"""<div style="font-family: sans-serif; padding: 2px; width: 380px;">{tooltip_items}</div>"""
         
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
@@ -203,7 +200,8 @@ map_obj = create_map(len(map_data), st.session_state.mix_mode)
 
 if st.session_state.mix_mode:
     col_map, col_mix = st.columns([7, 3])
-    returned_objects = ['last_object_clicked']
+    # 💡 DivIcon 마커 클릭을 안정적으로 감지하기 위해 'last_clicked' 활용
+    returned_objects = ['last_clicked']
 else:
     col_map = st.container()
     col_mix = None
@@ -214,8 +212,9 @@ with col_map:
         st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
     map_output = st_folium(map_obj, width="100%", height=850, returned_objects=returned_objects, key="main_stable_map")
 
-if st.session_state.mix_mode and map_output and map_output.get('last_object_clicked'):
-    c_lat, c_lon = map_output['last_object_clicked']['lat'], map_output['last_object_clicked']['lng']
+# 💡 지도 클릭 위치에서 가장 가까운 마커를 찾아 믹스에 추가하는 로직 보완
+if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
+    c_lat, c_lon = map_output['last_clicked']['lat'], map_output['last_clicked']['lng']
     current_click = f"{c_lat}_{c_lon}"
     
     if current_click != st.session_state.last_added_coords:
@@ -223,7 +222,8 @@ if st.session_state.mix_mode and map_output and map_output.get('last_object_clic
         unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
         closest_idx = unique_coords['dist_sq'].idxmin()
         
-        if unique_coords.loc[closest_idx, 'dist_sq'] < 0.0005:
+        # 클릭 오차 범위를 넉넉하게 허용 (0.002 이내)
+        if unique_coords.loc[closest_idx, 'dist_sq'] < 0.002:
             lat, lon = unique_coords.loc[closest_idx, 'LAT'], unique_coords.loc[closest_idx, 'LON']
             matched = map_data[(map_data['LAT'] == lat) & (map_data['LON'] == lon)]
             
