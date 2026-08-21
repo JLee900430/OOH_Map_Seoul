@@ -101,7 +101,7 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# 이미지 경로를 찾아 Base64 썸네일로 변환하는 함수 (호버링 프리뷰용)
+# 이미지 경로를 찾아 Base64 썸네일로 변환하는 함수 (호버링 프리뷰용 - 넉넉한 크기)
 def get_thumbnail_base64(row_item):
     try:
         raw_id = row_item.get('ID', '')
@@ -128,7 +128,7 @@ def get_thumbnail_base64(row_item):
                        name_no_ext.startswith(id_str_raw + '-'):
                         img_path = os.path.join(IMAGE_DIR, f)
                         with Image.open(img_path) as img:
-                            img.thumbnail((100, 100))
+                            img.thumbnail((240, 180))  # 💡 프리뷰 이미지 크기 확대
                             if img.mode != 'RGB':
                                 img = img.convert('RGB')
                             buffered = BytesIO()
@@ -155,7 +155,6 @@ def create_map():
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 대표 이미지 썸네일 (첫 번째 매체 기준)
         thumb_b64 = get_thumbnail_base64(group.iloc[0])
         
         if len(group) > 1:
@@ -167,11 +166,11 @@ def create_map():
             popup_html = f"<b>{name}</b>"
             tooltip_title = name
 
-        # 호버링(Tooltip) HTML 구성 (텍스트 + 대표 이미지 미리보기)
+        # 💡 호버링 툴팁 HTML (눈에 띄는 큼직한 프리뷰 카드 디자인)
         tooltip_html = f"""
-        <div style="text-align: center; font-family: sans-serif; padding: 2px;">
-            <b>{tooltip_title}</b><br>
-            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:90px; height:70px; object-fit:cover; border-radius:4px; margin-top:5px; border:1px solid #ddd;" />' if thumb_b64 else ''}
+        <div style="text-align: center; font-family: sans-serif; padding: 4px; background: white; border-radius: 6px;">
+            <b style="font-size: 13px; color: #333;">{tooltip_title}</b><br>
+            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:160px; height:110px; object-fit:cover; border-radius:4px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:11px; color:#888; margin-top:4px;">이미지 없음</div>'}
         </div>
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
@@ -200,29 +199,36 @@ def create_map():
         
     return m
 
-# 지도 객체를 session_state에 캐싱하여 속도 최적화
+# 지도 객체를 session_state에 캐싱
 if 'map_obj' not in st.session_state:
     st.session_state.map_obj = create_map()
 
-# 💡 동적 레이아웃: 마커가 선택되지 않았을 때는 지도를 전체화면으로 출력
+# 💡 동적 레이아웃 처리 (클릭 전: 전체화면 지도 / 클릭 후: 화면 분할)
 if st.session_state.clicked_lat is None:
-    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 미리보기가, 클릭하면 상세 정보가 나타납니다)")
+    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 확대 미리보기가, 클릭하면 상세 정보가 나타납니다)")
     map_output = st_folium(
         st.session_state.map_obj, 
-        width=1200, 
-        height=680, 
-        returned_objects=['last_object_clicked']
+        width=1300, 
+        height=700, 
+        returned_objects=['last_clicked']
     )
     
-    if map_output and map_output.get('last_object_clicked'):
-        c_lat = map_output['last_object_clicked']['lat']
-        c_lon = map_output['last_object_clicked']['lng']
-        st.session_state.clicked_lat = c_lat
-        st.session_state.clicked_lon = c_lon
-        st.rerun()
+    # 💡 좌표 근접 매칭 방식으로 클릭 감지 신뢰도 대폭 향상
+    if map_output and map_output.get('last_clicked'):
+        c_lat = map_output['last_clicked']['lat']
+        c_lon = map_output['last_clicked']['lng']
+        
+        unique_coords = map_data[['LAT', 'LON']].drop_duplicates()
+        unique_coords['dist'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+        closest = unique_coords.loc[unique_coords['dist'].idxmin()]
+        
+        if closest['dist'] < 0.0008:  # 근접 허용 범위 내 클릭 시 인식
+            st.session_state.clicked_lat = closest['LAT']
+            st.session_state.clicked_lon = closest['LON']
+            st.rerun()
 
 else:
-    # 💡 마커가 선택된 경우에만 화면 2분할 레이아웃 적용
+    # 💡 마커가 선택된 경우에만 2분할 뷰 활성화
     col1, col2 = st.columns([1.6, 1])
     
     with col1:
@@ -231,16 +237,22 @@ else:
             st.session_state.map_obj, 
             width=700, 
             height=650, 
-            returned_objects=['last_object_clicked']
+            returned_objects=['last_clicked']
         )
         
-        if map_output and map_output.get('last_object_clicked'):
-            c_lat = map_output['last_object_clicked']['lat']
-            c_lon = map_output['last_object_clicked']['lng']
-            if st.session_state.clicked_lat != c_lat or st.session_state.clicked_lon != c_lon:
-                st.session_state.clicked_lat = c_lat
-                st.session_state.clicked_lon = c_lon
-                st.rerun()
+        if map_output and map_output.get('last_clicked'):
+            c_lat = map_output['last_clicked']['lat']
+            c_lon = map_output['last_clicked']['lng']
+            
+            unique_coords = map_data[['LAT', 'LON']].drop_duplicates()
+            unique_coords['dist'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+            closest = unique_coords.loc[unique_coords['dist'].idxmin()]
+            
+            if closest['dist'] < 0.0008:
+                if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
+                    st.session_state.clicked_lat = closest['LAT']
+                    st.session_state.clicked_lon = closest['LON']
+                    st.rerun()
 
     with col2:
         st.subheader("📋 매체 상세 정보")
