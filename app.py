@@ -114,7 +114,7 @@ if selected_media != "선택 안 함":
         st.session_state.clicked_lon = target_row['LON']
         st.rerun()
 
-# 💡 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (크기 300% 확대 반영)
+# 💡 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (크기 대폭 확대)
 def get_thumbnail_base64(row_item):
     try:
         raw_id = row_item.get('ID', '')
@@ -165,18 +165,23 @@ def create_map():
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        thumb_b64 = get_thumbnail_base64(group.iloc[0])
+        first_row = group.iloc[0]
+        thumb_b64 = get_thumbnail_base64(first_row)
         
         if len(group) > 1:
-            tooltip_title = f"{group['NAME'].iloc[0]} 외 {len(group)-1}개"
+            tooltip_title = f"{first_row['NAME']} 외 {len(group)-1}개"
         else:
-            tooltip_title = group['NAME'].iloc[0]
+            tooltip_title = first_row['NAME']
 
-        # 300% 확대된 대형 호버링 프리뷰 툴팁 디자인
+        price_val = first_row.get('PRICE', '')
+        period_val = first_row.get('PERIOD', '')
+
+        # 💡 호버링 프리뷰 툴팁 (이름, 가격, 기간, ID_A 이미지 포함)
         tooltip_html = f"""
-        <div style="text-align: center; font-family: sans-serif; padding: 8px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-            <b style="font-size: 15px; color: #222;">{tooltip_title}</b><br>
-            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:420px; height:300px; object-fit:cover; border-radius:6px; margin-top:8px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:12px; color:#888; margin-top:8px;">대표 이미지(ID_A) 없음</div>'}
+        <div style="text-align: center; font-family: sans-serif; padding: 8px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); width: 230px;">
+            <b style="font-size: 14px; color: #222;">{tooltip_title}</b><br>
+            <div style="font-size: 12px; color: #e74c3c; font-weight: bold; margin-top: 4px;">💰 {price_val} 원 ({period_val})</div>
+            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:210px; height:150px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:11px; color:#888; margin-top:4px;">대표 이미지(ID_A) 없음</div>'}
         </div>
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
@@ -185,7 +190,6 @@ def create_map():
         if is_illegal:
             badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>'
 
-        # 💡 pointer-events 및 cursor 스타일 추가로 클릭 인식 안정화
         html_content = f"""
         <div style="position: relative; display: inline-block; pointer-events: auto; cursor: pointer;">
             <div style="background-color: {bg_color}; width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 10px;">
@@ -209,7 +213,7 @@ def create_map():
 if 'map_obj' not in st.session_state:
     st.session_state.map_obj = create_map()
 
-# 공통 클릭 처리 함수 (중복 제거 및 무한 루프 방지)
+# 공통 클릭 이벤트 처리 함수 (가장 가까운 마커 좌표 매칭)
 def handle_map_click(map_output):
     if map_output and map_output.get('last_clicked'):
         c_lat = map_output['last_clicked']['lat']
@@ -219,15 +223,14 @@ def handle_map_click(map_output):
         unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
         closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
         
-        # 💡 현재 선택된 좌표와 다를 때만 갱신하여 무한 루프 및 깜빡임 원천 차단
         if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
             st.session_state.clicked_lat = closest['LAT']
             st.session_state.clicked_lon = closest['LON']
             st.rerun()
 
-# 1단계: 마커가 선택되지 않은 초기 상태 (전체화면 지도 단독 노출)
+# 💡 동적 레이아웃: 마커 클릭 전에는 전체화면 지도, 클릭 후에는 2분할 뷰 전환
 if st.session_state.clicked_lat is None:
-    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 대형 미리보기가, 클릭하면 상세 정보가 나타납니다)")
+    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 미리보기가, 클릭하면 상세 정보가 나타납니다)")
     map_output = st_folium(
         st.session_state.map_obj, 
         width=1300, 
@@ -237,7 +240,6 @@ if st.session_state.clicked_lat is None:
     handle_map_click(map_output)
 
 else:
-    # 2단계: 마커가 클릭된 이후에만 2분할 레이아웃으로 전환
     col1, col2 = st.columns([1.6, 1])
     
     with col1:
