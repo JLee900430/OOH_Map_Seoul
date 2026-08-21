@@ -13,18 +13,26 @@ st.set_page_config(page_title="OOH Media Mix Dashboard", layout="wide")
 st.title("🏙️ OOH Media Mix Dashboard (Auto-Mapping)")
 st.markdown("구글 시트 데이터와 폴더 내 이미지 파일명을 `ID`로 자동 매핑하여 보여주는 인터랙티브 미디어 믹스 맵입니다.")
 
+# 0. app.py가 위치한 절대 경로를 기준으로 설정 (경로 오류 원천 차단)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # 사이드바 환경 설정
 st.sidebar.header("⚙️ 환경 설정")
 KAKAO_API_KEY = st.sidebar.text_input("카카오 API 키", value="9f98264d7ef44f83084608ac07349c0b")
 SHEET_URL = st.sidebar.text_input("구글 시트 CSV 링크", value="https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496")
 
-# 프로젝트 폴더 내 'image' 폴더를 기본값으로 지정
-DEFAULT_IMG_DIR = "image"
-IMAGE_DIR = st.sidebar.text_input("이미지 폴더 경로", value=DEFAULT_IMG_DIR)
+# 프로젝트 폴더 내 'image' 폴더를 기본값으로 지정 (app.py 기준 절대 경로로 자동 변환)
+default_img_input = "image"
+user_img_dir = st.sidebar.text_input("이미지 폴더 경로", value=default_img_input)
+
+if os.path.isabs(user_img_dir):
+    IMAGE_DIR = user_img_dir
+else:
+    IMAGE_DIR = os.path.join(BASE_DIR, user_img_dir)
 
 # 디버깅용: 폴더 내 실제 이미지 파일 존재 여부 확인
 with st.sidebar.expander("🔍 이미지 폴더 진단"):
-    st.write(f"현재 인식된 폴더 경로: `{IMAGE_DIR}`")
+    st.write(f"현재 인식된 절대 폴더 경로: `{IMAGE_DIR}`")
     if os.path.exists(IMAGE_DIR):
         found_files = os.listdir(IMAGE_DIR)
         st.success(f"폴더 안의 전체 파일 수: {len(found_files)}개")
