@@ -80,11 +80,15 @@ map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
-# Session State 초기화
+# Session State 초기화 (선택된 마커 및 지도 위치/줌 유지용)
 if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
+if 'map_center' not in st.session_state:
+    st.session_state.map_center = [37.5665, 126.9780]
+if 'map_zoom' not in st.session_state:
+    st.session_state.map_zoom = 11
 
 # 비상용 사이드바 직접 선택 기능
 st.sidebar.markdown("---")
@@ -97,9 +101,11 @@ if selected_media != "선택 안 함":
     if st.session_state.clicked_lat != target_row['LAT'] or st.session_state.clicked_lon != target_row['LON']:
         st.session_state.clicked_lat = target_row['LAT']
         st.session_state.clicked_lon = target_row['LON']
+        st.session_state.map_center = [target_row['LAT'], target_row['LON']]
+        st.session_state.map_zoom = 14
         st.rerun()
 
-# 💡 폴더 내 이미지 캐싱
+# 폴더 내 이미지 메모리 캐싱
 @st.cache_data
 def build_image_map(img_dir):
     img_map = {}
@@ -147,32 +153,29 @@ def find_thumbnail_for_id(raw_id):
         pass
     return None
 
-# Folium 지도 생성 함수 (좌상단 범례 & 다중 매체 동적 확장 프리뷰 적용)
-@st.cache_resource
-def create_map(data_hash, img_dir):
-    m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
+# Folium 지도 생성 함수 (범례 타이틀 삭제 완료, 다중 매체 프리뷰 자동 확장)
+def create_map(center, zoom):
+    m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB positron')
     
-    # 좌상단 가독성 좋은 범례
-    title_legend_html = """
+    # 💡 범례 타이틀 행 삭제 완료 및 깔끔한 배치
+    legend_html = """
     <div style="position: fixed; 
-                top: 15px; left: 60px; width: 220px; height: 135px; 
+                top: 15px; right: 15px; width: 160px; height: 100px; 
                 background-color: white; z-index:9999; font-size:12px;
-                border:2px solid #ccc; border-radius: 8px; padding: 10px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif; line-height: 1.5;">
-      <b style="font-size: 14px; color: #111;">🏙️ OOH Media in SEOUL</b><hr style="margin: 5px 0; border:0; border-top:1px solid #eee;">
+                border:2px solid grey; border-radius: 6px; padding: 10px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif; line-height: 1.6;">
       <div><span style="background:#3498db; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> LED</div>
       <div><span style="background:#2ecc71; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> STATIC</div>
       <div><span style="background:#9b59b6; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> LED + STATIC</div>
       <div><span style="background:#e74c3c; width:12px; height:12px; display:inline-block; border-radius:3px; margin-right:6px; vertical-align: middle;"></span> 불법 매체</div>
     </div>
     """
-    m.get_root().html.add_child(folium.Element(title_legend_html))
+    m.get_root().html.add_child(folium.Element(legend_html))
     
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
         
-        # 마커 컬러 규칙 (LED, STATIC, LED + STATIC)
         if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
             bg_color = '#9b59b6'  # 보라색
         elif 'LED' in type_str:
@@ -182,7 +185,7 @@ def create_map(data_hash, img_dir):
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 💡 스크롤 없이 매체 개수에 맞게 프리뷰 창이 자동으로 커지도록 동적 생성
+        # 💡 매체 개수에 따라 프리뷰 창이 자동으로 커지도록 설정 (스크롤 없음)
         tooltip_items_html = ""
         for _, row in group.iterrows():
             m_name = row.get('NAME', '')
@@ -198,7 +201,6 @@ def create_map(data_hash, img_dir):
             </div>
             """
 
-        # max-height와 overflow를 제거하여 매체 수에 맞게 창이 상황에 맞게 커지도록 설정
         tooltip_html = f"""
         <div style="font-family: sans-serif; padding: 8px; background: white; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.35); width: 300px;">
             <div style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 4px; border-bottom: 2px solid #ddd; padding-bottom: 4px;">📍 이 위치의 매체 ({len(group)}개)</div>
@@ -230,41 +232,40 @@ def create_map(data_hash, img_dir):
         
     return m
 
-map_obj = create_map(len(map_data), IMAGE_DIR)
-
-# 💡 고정 2분할 레이아웃 유지 (지도가 다시 로딩되거나 줌이 리셋되는 현상 원천 차단)
+# 💡 **핵심 고정 레이아웃**: 지도가 리렌더링되거나 리셋되는 현상을 막기 위해 처음부터 2분할 고정 레이아웃 사용
 col_map, col_detail = st.columns([3.8, 1.2])
 
 with col_map:
-    # 💡 returned_objects에 last_object_clicked와 last_clicked를 모두 포함하여 클릭 인식률 100% 보장
+    # 저장된 지도 중심과 줌 레벨을 반영하여 생성
+    map_obj = create_map(st.session_state.map_center, st.session_state.map_zoom)
     map_output = st_folium(
         map_obj, 
         width="100%", 
         height=800, 
-        returned_objects=['last_object_clicked', 'last_clicked'],
+        returned_objects=['last_clicked', 'center', 'zoom'],
         key="main_map"
     )
     
-    # 💡 클릭 감지 처리 (객체 클릭 및 좌표 근접 매칭 이중 보장)
-    clicked_lat_val, clicked_lon_val = None, None
     if map_output:
-        if map_output.get('last_object_clicked'):
-            clicked_lat_val = map_output['last_object_clicked'].get('lat')
-            clicked_lon_val = map_output['last_object_clicked'].get('lng')
-        elif map_output.get('last_clicked'):
+        # 팬(이동) 및 줌 상태를 session_state에 실시간 백업하여 리셋 방지
+        if 'center' in map_output and map_output['center']:
+            st.session_state.map_center = [map_output['center']['lat'], map_output['center']['lng']]
+        if 'zoom' in map_output and map_output['zoom']:
+            st.session_state.map_zoom = map_output['zoom']
+
+        # 마커 클릭 감지 및 상세 정보 창 갱신
+        if map_output.get('last_clicked'):
             c_lat = map_output['last_clicked']['lat']
             c_lon = map_output['last_clicked']['lng']
+            
             unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
             unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
             closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
-            clicked_lat_val = closest['LAT']
-            clicked_lon_val = closest['LON']
-
-    if clicked_lat_val is not None and clicked_lon_val is not None:
-        if st.session_state.clicked_lat != clicked_lat_val or st.session_state.clicked_lon != clicked_lon_val:
-            st.session_state.clicked_lat = clicked_lat_val
-            st.session_state.clicked_lon = clicked_lon_val
-            st.rerun()
+            
+            if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
+                st.session_state.clicked_lat = closest['LAT']
+                st.session_state.clicked_lon = closest['LON']
+                st.rerun()
 
 with col_detail:
     if st.session_state.clicked_lat is not None:
