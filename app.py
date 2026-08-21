@@ -18,15 +18,8 @@ st.sidebar.header("⚙️ 환경 설정")
 KAKAO_API_KEY = st.sidebar.text_input("카카오 API 키", value="9f98264d7ef44f83084608ac07349c0b")
 SHEET_URL = st.sidebar.text_input("구글 시트 CSV 링크", value="https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496")
 
-# GitHub 클라우드 환경 및 로컬 환경 경로 자동 감지
-local_img_dir = os.path.expanduser("~/Desktop/이히리기우구추/AI/OOH_Map/image")
-repo_img_dir = os.path.join(os.path.dirname(__file__), "image")
-
-if os.path.exists(repo_img_dir):
-    DEFAULT_IMG_DIR = repo_img_dir
-else:
-    DEFAULT_IMG_DIR = local_img_dir
-
+# 💡 환경 구분 없이 프로젝트 폴더 내의 'image' 폴더를 기본값으로 지정
+DEFAULT_IMG_DIR = "image"
 IMAGE_DIR = st.sidebar.text_input("이미지 폴더 경로", value=DEFAULT_IMG_DIR)
 
 # 디버깅용: 폴더 내 실제 이미지 파일 존재 여부 확인
