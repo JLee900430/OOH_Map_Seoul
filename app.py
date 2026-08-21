@@ -84,14 +84,17 @@ def format_text_with_br(val):
 def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 툴팁 및 팝업 화면 최적화 CSS
+    # 💡 호버링 툴팁과 클릭 팝업 스타일 대폭 확장 최적화 CSS
     custom_css = """
     <style>
     .leaflet-tooltip {
-        max-width: 320px !important;
+        max-width: 550px !important;
         white-space: normal !important;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.3) !important;
+        padding: 14px !important;
+        background-color: #ffffff !important;
+        border: 2px solid #ddd !important;
     }
     .leaflet-popup-content-wrapper {
         border-radius: 12px !important;
@@ -131,16 +134,19 @@ def create_map(data_hash, is_mix_mode):
             
             img_urls = get_github_image_urls(row.get('ID', ''))
             
-            # 호버링 툴팁용 작은 이미지
-            img_tag_small = f'<br><img src="{img_urls[0]}" style="width:100%; height:80px; object-fit:cover; border-radius:4px; margin-top:4px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
+            # 💡 호버링 툴팁용 이미지 크기를 대폭 확대 (높이 180px, 선명하게)
+            img_tag_small = f'<br><img src="{img_urls[0]}" style="width:100%; height:180px; object-fit:cover; border-radius:6px; margin-top:8px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
             tooltip_items += f"""
-            <div style="background: #fdfdfd; border: 1px solid #e0e0e0; padding: 6px; border-radius: 6px;">
-                <b style="font-size: 11px;">{m_name}</b><br><span style="font-size: 10px; color: #e74c3c;">💰 {m_price}원</span>{img_tag_small}
+            <div style="background: #fdfdfd; border: 1px solid #d0d0d0; padding: 10px; border-radius: 8px; margin-bottom: 6px;">
+                <b style="font-size: 14px; color: #222;">{m_name}</b><br>
+                <span style="font-size: 12px; color: #555;"><b>유형:</b> {m_type}</span><br>
+                <span style="font-size: 13px; color: #e74c3c; font-weight: bold;">💰 {m_price}원</span>
+                {img_tag_small}
             </div>
             """
             
             if not is_mix_mode:
-                # 💡 팝업창 내부 이미지 크기를 대폭 확대 (높이 350px, 선명한 화질 유지)
+                # 클릭 팝업용 대형 이미지
                 img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:350px; object-fit:cover; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
                 img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:350px; object-fit:cover; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
                 
@@ -160,7 +166,8 @@ def create_map(data_hash, is_mix_mode):
                 """
 
         grid_cols = "repeat(2, 1fr)" if len(group) > 1 else "1fr"
-        tooltip_html = f"""<div style="font-family: sans-serif; padding: 2px; max-width: 320px;"><div style="display: grid; grid-template-columns: {grid_cols}; gap: 5px;">{tooltip_items}</div></div>"""
+        # 💡 툴팁 최대 너비 확대 및 내부 컨테이너 구성 강화
+        tooltip_html = f"""<div style="font-family: sans-serif; padding: 4px; max-width: 520px;"><div style="display: grid; grid-template-columns: {grid_cols}; gap: 10px;">{tooltip_items}</div></div>"""
         
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
         
@@ -178,7 +185,6 @@ def create_map(data_hash, is_mix_mode):
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto')
             ).add_to(m)
         else:
-            # 💡 팝업창 전체 크기 확대 (가로 850px, 최대 높이 700px, 스크롤바 제공) 및 화면 밖 잘림 방지 설정 적용
             popup_html = f"""<div style="font-family: sans-serif; width: 850px; max-height: 700px; overflow-y: auto; padding: 20px;">{popup_items}</div>"""
             folium.Marker(
                 [lat, lon], 
