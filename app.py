@@ -6,7 +6,26 @@ import folium
 from streamlit_folium import st_folium
 
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
-st.title("🏙️ OOH Media in SEOUL")
+
+# 💡 우상단 '믹스 만들기' 버튼 배치를 위한 레이아웃
+col_title, col_mix_btn = st.columns([8, 2])
+with col_title:
+    st.title("🏙️ OOH Media in SEOUL")
+
+# 💡 Session State 초기화 (믹스 리스트 및 모드 관리)
+if 'mix_mode' not in st.session_state:
+    st.session_state.mix_mode = False
+if 'mix_list' not in st.session_state:
+    st.session_state.mix_list = []
+if 'last_added_coords' not in st.session_state:
+    st.session_state.last_added_coords = None
+
+with col_mix_btn:
+    st.write("") # 상단 여백
+    # 버튼 클릭 시 모드 전환 및 새로고침
+    if st.button("🛒 믹스 만들기 켜기" if not st.session_state.mix_mode else "❌ 믹스 모드 종료", use_container_width=True):
+        st.session_state.mix_mode = not st.session_state.mix_mode
+        st.rerun()
 
 KAKAO_API_KEY = "9f98264d7ef44f83084608ac07349c0b"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496"
@@ -53,10 +72,8 @@ def get_github_image_urls(raw_id):
     except Exception:
         return ["", ""]
 
-# 💡 구글 시트의 줄바꿈을 웹(HTML) 줄바꿈으로 변환해주는 안전한 함수
 def format_text_with_br(val):
-    if pd.isna(val):
-        return ""
+    if pd.isna(val): return ""
     return str(val).replace('\n', '<br>')
 
 @st.cache_resource
@@ -84,7 +101,6 @@ def create_map(data_hash):
         popup_items = ""
         
         for _, row in group.iterrows():
-            # 💡 여기서 텍스트 데이터의 줄바꿈을 완벽하게 처리합니다.
             m_name = format_text_with_br(row.get('NAME', ''))
             m_price = format_text_with_br(row.get('PRICE', ''))
             m_period = format_text_with_br(row.get('PERIOD', ''))
@@ -137,7 +153,6 @@ def create_map(data_hash):
             [lat, lon], 
             icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
             tooltip=folium.Tooltip(tooltip_html, parse_html=True),
-            # 💡 keep_in_view=True: 팝업이 열릴 때 화면이 팝업 전체를 비추도록 부드럽게 지도를 이동시킵니다.
             popup=folium.Popup(popup_html, max_width=800, keep_in_view=True)
         ).add_to(m)
         
@@ -145,4 +160,76 @@ def create_map(data_hash):
 
 map_obj = create_map(len(map_data))
 
-st_folium(map_obj, width="100%", height=850, returned_objects=[])
+# 💡 믹스 모드 활성화 여부에 따른 레이아웃 및 맵 수신 이벤트 변경
+if st.session_state.mix_mode:
+    col_map, col_mix = st.columns([7, 3])
+    # 믹스 모드일 때만 파이썬으로 클릭 좌표를 가져옵니다.
+    returned_objects = ['last_clicked']
+else:
+    col_map = st.container()
+    col_mix = None
+    # 일반 모드일 때는 클릭 좌표를 무시하여 팝업이 튕기지 않게 완벽 보호합니다.
+    returned_objects = []
+
+with col_map:
+    if st.session_state.mix_mode:
+        st.info("👆 지도에서 추가하고 싶은 매체의 마커를 클릭하세요.")
+    map_output = st_folium(map_obj, width="100%", height=850, returned_objects=returned_objects, key="main_stable_map")
+
+# 💡 믹스에 매체 추가 로직
+if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
+    c_lat, c_lon = map_output['last_clicked']['lat'], map_output['last_clicked']['lng']
+    current_click = f"{c_lat}_{c_lon}"
+    
+    # 중복 클릭 및 추가 방지
+    if current_click != st.session_state.last_added_coords:
+        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+        closest_idx = unique_coords['dist_sq'].idxmin()
+        
+        if unique_coords.loc[closest_idx, 'dist_sq'] < 0.0005:
+            lat, lon = unique_coords.loc[closest_idx, 'LAT'], unique_coords.loc[closest_idx, 'LON']
+            matched = map_data[(map_data['LAT'] == lat) & (map_data['LON'] == lon)]
+            
+            added_count = 0
+            for _, row in matched.iterrows():
+                # 이미 리스트에 있는지 이름으로 확인
+                if row['NAME'] not in [item['NAME'] for item in st.session_state.mix_list]:
+                    st.session_state.mix_list.append(row.to_dict())
+                    added_count += 1
+            
+            st.session_state.last_added_coords = current_click
+            if added_count > 0:
+                st.toast("✅ 믹스에 성공적으로 담겼습니다!")
+                st.rerun()
+
+# 💡 우측 미디어 믹스 보드 UI
+if st.session_state.mix_mode and col_mix:
+    with col_mix:
+        st.subheader("🛒 미디어 믹스 보드")
+        st.markdown("---")
+        
+        if not st.session_state.mix_list:
+            st.warning("아직 추가된 매체가 없습니다.")
+        else:
+            total_price = 0
+            for idx, item in enumerate(st.session_state.mix_list):
+                col_info, col_del = st.columns([8, 2])
+                with col_info:
+                    st.markdown(f"**{item['NAME']}**")
+                    st.caption(f"{item['TYPE']} | {item['PRICE']}원")
+                with col_del:
+                    if st.button("❌", key=f"del_{idx}"):
+                        st.session_state.mix_list.pop(idx)
+                        st.session_state.last_added_coords = None # 삭제 후 재추가 가능하도록 리셋
+                        st.rerun()
+                st.markdown("---")
+                
+                # 총 단가 계산 로직 (숫자가 아닌 텍스트 예외 처리)
+                try:
+                    price_str = str(item['PRICE']).replace(',', '').replace('원', '').strip()
+                    total_price += int(price_str)
+                except ValueError:
+                    pass # '협의' 등의 텍스트는 합산에서 제외
+            
+            st.success(f"**총 예상 단가 합계:**\n### {total_price:,} 원")
