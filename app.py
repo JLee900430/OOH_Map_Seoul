@@ -7,12 +7,7 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
-# 💡 우상단 '믹스 만들기' 버튼 배치를 위한 레이아웃
-col_title, col_mix_btn = st.columns([8, 2])
-with col_title:
-    st.title("🏙️ OOH Media in SEOUL")
-
-# 💡 Session State 초기화 (믹스 리스트 및 모드 관리)
+# Session State 초기화
 if 'mix_mode' not in st.session_state:
     st.session_state.mix_mode = False
 if 'mix_list' not in st.session_state:
@@ -20,12 +15,23 @@ if 'mix_list' not in st.session_state:
 if 'last_added_coords' not in st.session_state:
     st.session_state.last_added_coords = None
 
+# 상단 헤더 & 모드 전환 버튼 (직관적으로 배치)
+col_title, col_mix_btn = st.columns([8, 2])
+with col_title:
+    st.title("🏙️ OOH Media in SEOUL" + (" (🛒 믹스 만들기 모드)" if st.session_state.mix_mode else ""))
+
 with col_mix_btn:
-    st.write("") # 상단 여백
-    # 버튼 클릭 시 모드 전환 및 새로고침
-    if st.button("🛒 믹스 만들기 켜기" if not st.session_state.mix_mode else "❌ 믹스 모드 종료", use_container_width=True):
-        st.session_state.mix_mode = not st.session_state.mix_mode
-        st.rerun()
+    st.write("") # 수직 정렬용 여백
+    if st.session_state.mix_mode:
+        # 💡 일반 모드로 확실하게 돌아가는 버튼 (눈에 띄게 Primary 색상 적용)
+        if st.button("⬅️ 일반 지도로 돌아가기", type="primary", use_container_width=True):
+            st.session_state.mix_mode = False
+            st.rerun()
+    else:
+        # 💡 믹스 모드를 켜는 버튼
+        if st.button("🛒 믹스 만들기 켜기", use_container_width=True):
+            st.session_state.mix_mode = True
+            st.rerun()
 
 KAKAO_API_KEY = "9f98264d7ef44f83084608ac07349c0b"
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496"
@@ -76,8 +82,9 @@ def format_text_with_br(val):
     if pd.isna(val): return ""
     return str(val).replace('\n', '<br>')
 
+# 💡 캐싱 키에 is_mix_mode를 추가하여 모드에 따라 지도를 다르게 렌더링
 @st.cache_resource
-def create_map(data_hash):
+def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
     legend_html = """
@@ -110,6 +117,7 @@ def create_map(data_hash):
             
             img_urls = get_github_image_urls(row.get('ID', ''))
             
+            # 호버링(툴팁)은 모드 상관없이 항상 표시
             img_tag_small = f'<br><img src="{img_urls[0]}" style="width:100%; height:80px; object-fit:cover; border-radius:4px; margin-top:4px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
             tooltip_items += f"""
             <div style="background: #fdfdfd; border: 1px solid #e0e0e0; padding: 6px; border-radius: 6px;">
@@ -117,29 +125,29 @@ def create_map(data_hash):
             </div>
             """
             
-            img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; max-height:250px; object-fit:contain; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
-            img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; max-height:250px; object-fit:contain; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
-            
-            popup_items += f"""
-            <div style="margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 15px;">
-                <h3 style="margin:0 0 8px 0; color:#111;">🏷️ {m_name}</h3>
-                <div style="display:flex; justify-content:space-between; font-size:14px; background:#f9f9f9; padding:10px; border-radius:6px; margin-bottom:12px;">
-                    <div><b>유형:</b> {m_type}<br><b>주소:</b> {m_location}</div>
-                    <div style="text-align:right; color:#e74c3c;"><b>단가:</b> {m_price}원<br>({m_period})</div>
+            # 팝업(일반 모드에서만 사용)
+            if not is_mix_mode:
+                img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; max-height:250px; object-fit:contain; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
+                img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; max-height:250px; object-fit:contain; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
+                
+                popup_items += f"""
+                <div style="margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 15px;">
+                    <h3 style="margin:0 0 8px 0; color:#111;">🏷️ {m_name}</h3>
+                    <div style="display:flex; justify-content:space-between; font-size:14px; background:#f9f9f9; padding:10px; border-radius:6px; margin-bottom:12px;">
+                        <div><b>유형:</b> {m_type}<br><b>주소:</b> {m_location}</div>
+                        <div style="text-align:right; color:#e74c3c;"><b>단가:</b> {m_price}원<br>({m_period})</div>
+                    </div>
+                    <p style="margin:4px 0 12px 0; font-size:13px; color:#555; line-height:1.6;">{m_details}</p>
+                    <div style="display:flex; justify-content:space-between; gap:10px;">
+                        {img_tag_large_1}
+                        {img_tag_large_2}
+                    </div>
                 </div>
-                <p style="margin:4px 0 12px 0; font-size:13px; color:#555; line-height:1.6;">{m_details}</p>
-                <div style="display:flex; justify-content:space-between; gap:10px;">
-                    {img_tag_large_1}
-                    {img_tag_large_2}
-                </div>
-            </div>
-            """
+                """
 
         grid_cols = "repeat(2, 1fr)" if len(group) > 1 else "1fr"
         tooltip_html = f"""<div style="font-family: sans-serif; padding: 5px; width: {400 if len(group) > 1 else 200}px;"><div style="display: grid; grid-template-columns: {grid_cols}; gap: 5px;">{tooltip_items}</div></div>"""
         
-        popup_html = f"""<div style="font-family: sans-serif; width: 750px; max-height: 550px; overflow-y: auto; padding: 15px;">{popup_items}</div>"""
-
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
         
         html_content = f"""
@@ -149,39 +157,47 @@ def create_map(data_hash):
         </div>
         """
         
-        folium.Marker(
-            [lat, lon], 
-            icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
-            tooltip=folium.Tooltip(tooltip_html, parse_html=True),
-            popup=folium.Popup(popup_html, max_width=800, keep_in_view=True)
-        ).add_to(m)
+        # 💡 믹스 모드일 때는 거대한 팝업을 띄우지 않고 클릭만 감지하도록 구성
+        if is_mix_mode:
+            folium.Marker(
+                [lat, lon], 
+                icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
+                tooltip=folium.Tooltip(tooltip_html, parse_html=True)
+            ).add_to(m)
+        else:
+            popup_html = f"""<div style="font-family: sans-serif; width: 750px; max-height: 550px; overflow-y: auto; padding: 15px;">{popup_items}</div>"""
+            folium.Marker(
+                [lat, lon], 
+                icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
+                tooltip=folium.Tooltip(tooltip_html, parse_html=True),
+                popup=folium.Popup(popup_html, max_width=800, keep_in_view=True)
+            ).add_to(m)
         
     return m
 
-map_obj = create_map(len(map_data))
+# 지도 생성 (모드에 따라 캐싱)
+map_obj = create_map(len(map_data), st.session_state.mix_mode)
 
-# 💡 믹스 모드 활성화 여부에 따른 레이아웃 및 맵 수신 이벤트 변경
 if st.session_state.mix_mode:
     col_map, col_mix = st.columns([7, 3])
-    # 믹스 모드일 때만 파이썬으로 클릭 좌표를 가져옵니다.
-    returned_objects = ['last_clicked']
+    # 💡 마커 클릭 이벤트를 정확히 잡아오기 위해 'last_object_clicked' 사용
+    returned_objects = ['last_object_clicked']
 else:
     col_map = st.container()
     col_mix = None
-    # 일반 모드일 때는 클릭 좌표를 무시하여 팝업이 튕기지 않게 완벽 보호합니다.
+    # 일반 모드는 화면 새로고침 원천 차단
     returned_objects = []
 
 with col_map:
     if st.session_state.mix_mode:
-        st.info("👆 지도에서 추가하고 싶은 매체의 마커를 클릭하세요.")
+        st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
     map_output = st_folium(map_obj, width="100%", height=850, returned_objects=returned_objects, key="main_stable_map")
 
 # 💡 믹스에 매체 추가 로직
-if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
-    c_lat, c_lon = map_output['last_clicked']['lat'], map_output['last_clicked']['lng']
+if st.session_state.mix_mode and map_output and map_output.get('last_object_clicked'):
+    c_lat, c_lon = map_output['last_object_clicked']['lat'], map_output['last_object_clicked']['lng']
     current_click = f"{c_lat}_{c_lon}"
     
-    # 중복 클릭 및 추가 방지
     if current_click != st.session_state.last_added_coords:
         unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
         unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
@@ -193,24 +209,22 @@ if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
             
             added_count = 0
             for _, row in matched.iterrows():
-                # 이미 리스트에 있는지 이름으로 확인
                 if row['NAME'] not in [item['NAME'] for item in st.session_state.mix_list]:
                     st.session_state.mix_list.append(row.to_dict())
                     added_count += 1
             
             st.session_state.last_added_coords = current_click
             if added_count > 0:
-                st.toast("✅ 믹스에 성공적으로 담겼습니다!")
                 st.rerun()
 
-# 💡 우측 미디어 믹스 보드 UI
+# 💡 믹스 보드 출력
 if st.session_state.mix_mode and col_mix:
     with col_mix:
         st.subheader("🛒 미디어 믹스 보드")
         st.markdown("---")
         
         if not st.session_state.mix_list:
-            st.warning("아직 추가된 매체가 없습니다.")
+            st.warning("아직 추가된 매체가 없습니다. 마커를 클릭하세요.")
         else:
             total_price = 0
             for idx, item in enumerate(st.session_state.mix_list):
@@ -221,15 +235,14 @@ if st.session_state.mix_mode and col_mix:
                 with col_del:
                     if st.button("❌", key=f"del_{idx}"):
                         st.session_state.mix_list.pop(idx)
-                        st.session_state.last_added_coords = None # 삭제 후 재추가 가능하도록 리셋
+                        st.session_state.last_added_coords = None
                         st.rerun()
                 st.markdown("---")
                 
-                # 총 단가 계산 로직 (숫자가 아닌 텍스트 예외 처리)
                 try:
                     price_str = str(item['PRICE']).replace(',', '').replace('원', '').strip()
                     total_price += int(price_str)
                 except ValueError:
-                    pass # '협의' 등의 텍스트는 합산에서 제외
+                    pass
             
             st.success(f"**총 예상 단가 합계:**\n### {total_price:,} 원")
