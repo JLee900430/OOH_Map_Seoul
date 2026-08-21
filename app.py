@@ -80,15 +80,11 @@ map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
-# Session State 초기화 (선택된 마커 및 지도 위치/줌 유지용)
+# Session State 초기화
 if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
-if 'map_center' not in st.session_state:
-    st.session_state.map_center = [37.5665, 126.9780]
-if 'map_zoom' not in st.session_state:
-    st.session_state.map_zoom = 11
 
 # 비상용 사이드바 직접 선택 기능
 st.sidebar.markdown("---")
@@ -101,8 +97,6 @@ if selected_media != "선택 안 함":
     if st.session_state.clicked_lat != target_row['LAT'] or st.session_state.clicked_lon != target_row['LON']:
         st.session_state.clicked_lat = target_row['LAT']
         st.session_state.clicked_lon = target_row['LON']
-        st.session_state.map_center = [target_row['LAT'], target_row['LON']]
-        st.session_state.map_zoom = 14
         st.rerun()
 
 # 폴더 내 이미지 메모리 캐싱
@@ -153,11 +147,11 @@ def find_thumbnail_for_id(raw_id):
         pass
     return None
 
-# Folium 지도 생성 함수 (범례 타이틀 삭제 완료, 다중 매체 프리뷰 자동 확장)
-def create_map(center, zoom):
-    m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB positron')
+# Folium 지도 생성 함수 (범례 타이틀 삭제 및 2x2 그리드 프리뷰 적용)
+def create_map():
+    m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 💡 범례 타이틀 행 삭제 완료 및 깔끔한 배치
+    # 우상단 범례 (타이틀 행 삭제 완료)
     legend_html = """
     <div style="position: fixed; 
                 top: 15px; right: 15px; width: 160px; height: 100px; 
@@ -185,7 +179,7 @@ def create_map(center, zoom):
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 💡 매체 개수에 따라 프리뷰 창이 자동으로 커지도록 설정 (스크롤 없음)
+        # 💡 **요청사항 반영**: 동일 위치 매체가 많을 경우 스크롤 대신 2x2 그리드 형태로 자동 확장
         tooltip_items_html = ""
         for _, row in group.iterrows():
             m_name = row.get('NAME', '')
@@ -194,17 +188,23 @@ def create_map(center, zoom):
             thumb_b64 = find_thumbnail_for_id(row.get('ID', ''))
             
             tooltip_items_html += f"""
-            <div style="border-bottom: 1px solid #eee; padding: 8px 0; text-align: left;">
-                <b style="font-size: 14px; color: #111;">{m_name}</b><br>
-                <span style="font-size: 12px; color: #e74c3c; font-weight: bold;">💰 {m_price} 원 ({m_period})</span>
-                {f'<br><img src="data:image/jpeg;base64,{thumb_b64}" style="width:260px; height:180px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else ''}
+            <div style="background: #fdfdfd; border: 1px solid #e0e0e0; padding: 8px; border-radius: 6px; text-align: left;">
+                <b style="font-size: 13px; color: #111;">{m_name}</b><br>
+                <span style="font-size: 11px; color: #e74c3c; font-weight: bold;">💰 {m_price} 원 ({m_period})</span>
+                {f'<br><img src="data:image/jpeg;base64,{thumb_b64}" style="width:100%; height:130px; object-fit:cover; border-radius:4px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:10px; color:#888; margin-top:4px;">이미지 없음</div>'}
             </div>
             """
 
+        # 매체 개수에 따라 2열 그리드로 자동 배치되는 컨테이너
+        grid_cols = "repeat(2, 1fr)" if len(group) > 1 else "1fr"
+        container_width = "520px" if len(group) > 1 else "280px"
+
         tooltip_html = f"""
-        <div style="font-family: sans-serif; padding: 8px; background: white; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.35); width: 300px;">
-            <div style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 4px; border-bottom: 2px solid #ddd; padding-bottom: 4px;">📍 이 위치의 매체 ({len(group)}개)</div>
-            {tooltip_items_html}
+        <div style="font-family: sans-serif; padding: 8px; background: white; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.35); width: {container_width};">
+            <div style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 6px; border-bottom: 2px solid #ddd; padding-bottom: 4px;">📍 이 위치의 매체 ({len(group)}개)</div>
+            <div style="display: grid; grid-template-columns: {grid_cols}; gap: 8px;">
+                {tooltip_items_html}
+            </div>
         </div>
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
@@ -232,40 +232,44 @@ def create_map(center, zoom):
         
     return m
 
-# 💡 **핵심 고정 레이아웃**: 지도가 리렌더링되거나 리셋되는 현상을 막기 위해 처음부터 2분할 고정 레이아웃 사용
+map_obj = create_map()
+
+# 고정 2분할 레이아웃
 col_map, col_detail = st.columns([3.8, 1.2])
 
 with col_map:
-    # 저장된 지도 중심과 줌 레벨을 반영하여 생성
-    map_obj = create_map(st.session_state.map_center, st.session_state.map_zoom)
     map_output = st_folium(
         map_obj, 
         width="100%", 
         height=800, 
-        returned_objects=['last_clicked', 'center', 'zoom'],
+        returned_objects=['last_object_clicked', 'last_clicked'],
         key="main_map"
     )
     
-    if map_output:
-        # 팬(이동) 및 줌 상태를 session_state에 실시간 백업하여 리셋 방지
-        if 'center' in map_output and map_output['center']:
-            st.session_state.map_center = [map_output['center']['lat'], map_output['center']['lng']]
-        if 'zoom' in map_output and map_output['zoom']:
-            st.session_state.map_zoom = map_output['zoom']
+    # 💡 **클릭 디버깅 모니터 (사이드바에 출력)**
+    with st.sidebar.expander("🔍 클릭 디버그 모니터"):
+        st.write("raw map_output:", map_output)
 
-        # 마커 클릭 감지 및 상세 정보 창 갱신
-        if map_output.get('last_clicked'):
+    # 클릭 감지 및 상세 정보 반영 로직
+    clicked_lat_val, clicked_lon_val = None, None
+    if map_output:
+        if map_output.get('last_object_clicked'):
+            clicked_lat_val = map_output['last_object_clicked'].get('lat')
+            clicked_lon_val = map_output['last_object_clicked'].get('lng')
+        elif map_output.get('last_clicked'):
             c_lat = map_output['last_clicked']['lat']
             c_lon = map_output['last_clicked']['lng']
-            
             unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
             unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
             closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
-            
-            if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
-                st.session_state.clicked_lat = closest['LAT']
-                st.session_state.clicked_lon = closest['LON']
-                st.rerun()
+            clicked_lat_val = closest['LAT']
+            clicked_lon_val = closest['LON']
+
+    if clicked_lat_val is not None and clicked_lon_val is not None:
+        if st.session_state.clicked_lat != clicked_lat_val or st.session_state.clicked_lon != clicked_lon_val:
+            st.session_state.clicked_lat = clicked_lat_val
+            st.session_state.clicked_lon = clicked_lon_val
+            st.rerun()
 
 with col_detail:
     if st.session_state.clicked_lat is not None:
