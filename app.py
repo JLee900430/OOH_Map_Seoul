@@ -13,7 +13,7 @@ st.set_page_config(page_title="OOH Media Mix Dashboard", layout="wide")
 st.title("🏙️ OOH Media Mix Dashboard (Auto-Mapping)")
 st.markdown("구글 시트 데이터와 폴더 내 이미지 파일명을 `ID`로 자동 매핑하여 보여주는 인터랙티브 미디어 믹스 맵입니다.")
 
-# 0. app.py가 위치한 절대 경로를 기준으로 설정 (경로 오류 원천 차단)
+# 0. app.py가 위치한 절대 경로를 기준으로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 사이드바 환경 설정
@@ -21,11 +21,12 @@ st.sidebar.header("⚙️ 환경 설정")
 KAKAO_API_KEY = st.sidebar.text_input("카카오 API 키", value="9f98264d7ef44f83084608ac07349c0b")
 SHEET_URL = st.sidebar.text_input("구글 시트 CSV 링크", value="https://docs.google.com/spreadsheets/d/1mosGrKlMC4wggbf6VPjt3aQLm-R3WIPzVYbGoXVjeFY/export?format=csv&gid=1134856496")
 
-# 프로젝트 폴더 내 'image' 폴더를 기본값으로 지정 (app.py 기준 절대 경로로 자동 변환)
-default_img_input = "image"
-user_img_dir = st.sidebar.text_input("이미지 폴더 경로", value=default_img_input)
+# 💡 수정 포인트: 기본값을 빈 값으로 두어 app.py와 같은 경로를 바라보게 설정
+user_img_dir = st.sidebar.text_input("이미지 폴더 경로 (비워두면 app.py와 같은 경로)", value="")
 
-if os.path.isabs(user_img_dir):
+if not user_img_dir or user_img_dir == ".":
+    IMAGE_DIR = BASE_DIR
+elif os.path.isabs(user_img_dir):
     IMAGE_DIR = user_img_dir
 else:
     IMAGE_DIR = os.path.join(BASE_DIR, user_img_dir)
@@ -39,9 +40,9 @@ with st.sidebar.expander("🔍 이미지 폴더 진단"):
         if len(found_files) > 0:
             st.write("샘플 파일명:", found_files[:5])
         else:
-            st.warning("폴더는 존재하지만 안에 파일이 없습니다! GitHub에 폴더가 통째로 잘 올라갔는지 확인해 주세요.")
+            st.warning("폴더는 존재하지만 안에 파일이 없습니다!")
     else:
-        st.error("지정한 폴더 경로를 찾을 수 없습니다. 경로를 확인해 주세요.")
+        st.error("지정한 폴더 경로를 찾을 수 없습니다.")
 
 # 1. 구글 시트 데이터 로드 (캐싱 적용)
 @st.cache_data(ttl=60)
@@ -54,6 +55,10 @@ def load_data(url):
 
 try:
     df = load_data(SHEET_URL)
+    # 디버깅용: 구글 시트 컬럼 확인
+    with st.sidebar.expander("🔍 구글 시트 진단"):
+        st.write("불러온 컬럼 목록:", list(df.columns))
+        st.write(f"전체 행 개수: {len(df)}개")
 except Exception as e:
     st.error(f"구글 시트 데이터를 불러오는 데 실패했습니다: {e}")
     st.stop()
@@ -84,6 +89,10 @@ if 'LAT' not in df.columns or 'LON' not in df.columns:
         df['LON'] = lons
 
 map_data = df.dropna(subset=['LAT', 'LON'])
+
+# 💡 마커가 안 뜰 때 확인용 경고 메시지
+if len(map_data) == 0:
+    st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
 # 3. 레이아웃 분할 (좌측: 지도 / 우측: 상세 정보 패널)
 col1, col2 = st.columns([1.5, 1])
@@ -135,7 +144,7 @@ with col2:
                     st.write(f"**주소:** {row.get('LOCATION', '')}")
                     st.write(f"**상세:** {row.get('Details', '')}")
                     
-                    # 💡 대소문자 무시 + 완벽한 ID 자동 매핑 로직 (os.listdir 기반)
+                    # 💡 ID 매칭 로직 (001_A.jpg, 001_B.jpg 등의 형식 대응)
                     try:
                         raw_id = row.get('ID', '')
                         id_str = str(raw_id).strip()
@@ -144,8 +153,8 @@ with col2:
                         
                         try:
                             id_val = int(float(id_str))
-                            id_str_z3 = str(id_val).zfill(3) # 예: 105
-                            id_str_raw = str(id_val)         # 예: 105
+                            id_str_z3 = str(id_val).zfill(3) # 예: 001
+                            id_str_raw = str(id_val)         # 예: 1
                         except:
                             id_str_z3 = id_str
                             id_str_raw = id_str
@@ -153,10 +162,9 @@ with col2:
                         matched_images = []
                         if os.path.exists(IMAGE_DIR):
                             for f in os.listdir(IMAGE_DIR):
-                                # 이미지 확장자 파일만 대상
                                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
                                     name_no_ext = os.path.splitext(f)[0]
-                                    # ID로 시작하거나 정확히 일치하는 파일 탐색
+                                    # 001, 001_A, 001-B 등 다양한 파일명 패턴 허용
                                     if name_no_ext == id_str_z3 or \
                                        name_no_ext == id_str_raw or \
                                        name_no_ext.startswith(id_str_z3 + '_') or \
