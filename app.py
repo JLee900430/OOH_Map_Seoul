@@ -147,7 +147,7 @@ def find_thumbnail_for_id(raw_id):
         pass
     return None
 
-# Folium 지도 생성 함수 (좌상단 범례 & 원상복구된 마커 컬러 규칙)
+# Folium 지도 생성 함수 (좌상단 범례 & 다중 매체 동적 확장 프리뷰 적용)
 @st.cache_resource
 def create_map(data_hash, img_dir):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
@@ -182,7 +182,7 @@ def create_map(data_hash, img_dir):
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        # 동일 위치 다중 매체 호버링 지원
+        # 💡 스크롤 없이 매체 개수에 맞게 프리뷰 창이 자동으로 커지도록 동적 생성
         tooltip_items_html = ""
         for _, row in group.iterrows():
             m_name = row.get('NAME', '')
@@ -191,16 +191,17 @@ def create_map(data_hash, img_dir):
             thumb_b64 = find_thumbnail_for_id(row.get('ID', ''))
             
             tooltip_items_html += f"""
-            <div style="border-bottom: 1px solid #eee; padding: 6px 0; text-align: left;">
-                <b style="font-size: 13px; color: #111;">{m_name}</b><br>
+            <div style="border-bottom: 1px solid #eee; padding: 8px 0; text-align: left;">
+                <b style="font-size: 14px; color: #111;">{m_name}</b><br>
                 <span style="font-size: 12px; color: #e74c3c; font-weight: bold;">💰 {m_price} 원 ({m_period})</span>
-                {f'<br><img src="data:image/jpeg;base64,{thumb_b64}" style="width:240px; height:160px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else ''}
+                {f'<br><img src="data:image/jpeg;base64,{thumb_b64}" style="width:260px; height:180px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else ''}
             </div>
             """
 
+        # max-height와 overflow를 제거하여 매체 수에 맞게 창이 상황에 맞게 커지도록 설정
         tooltip_html = f"""
-        <div style="font-family: sans-serif; padding: 6px; background: white; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); max-height: 350px; overflow-y: auto; width: 280px;">
-            <div style="font-size: 11px; font-weight: bold; color: #555; margin-bottom: 4px;">📍 이 위치의 매체 ({len(group)}개)</div>
+        <div style="font-family: sans-serif; padding: 8px; background: white; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.35); width: 300px;">
+            <div style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 4px; border-bottom: 2px solid #ddd; padding-bottom: 4px;">📍 이 위치의 매체 ({len(group)}개)</div>
             {tooltip_items_html}
         </div>
         """
@@ -231,30 +232,38 @@ def create_map(data_hash, img_dir):
 
 map_obj = create_map(len(map_data), IMAGE_DIR)
 
-# 💡 고정 2분할 레이아웃 적용 (지도가 절대 다시 로딩되거나 줌이 리셋되지 않음)
+# 💡 고정 2분할 레이아웃 유지 (지도가 다시 로딩되거나 줌이 리셋되는 현상 원천 차단)
 col_map, col_detail = st.columns([3.8, 1.2])
 
 with col_map:
-    # 💡 returned_objects에서 center와 zoom을 제외하여 줌/팬 시 새로고침 원천 차단
+    # 💡 returned_objects에 last_object_clicked와 last_clicked를 모두 포함하여 클릭 인식률 100% 보장
     map_output = st_folium(
         map_obj, 
         width="100%", 
         height=800, 
-        returned_objects=['last_clicked'],
+        returned_objects=['last_object_clicked', 'last_clicked'],
         key="main_map"
     )
     
-    if map_output and map_output.get('last_clicked'):
-        c_lat = map_output['last_clicked']['lat']
-        c_lon = map_output['last_clicked']['lng']
-        
-        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-        closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
-        
-        if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
-            st.session_state.clicked_lat = closest['LAT']
-            st.session_state.clicked_lon = closest['LON']
+    # 💡 클릭 감지 처리 (객체 클릭 및 좌표 근접 매칭 이중 보장)
+    clicked_lat_val, clicked_lon_val = None, None
+    if map_output:
+        if map_output.get('last_object_clicked'):
+            clicked_lat_val = map_output['last_object_clicked'].get('lat')
+            clicked_lon_val = map_output['last_object_clicked'].get('lng')
+        elif map_output.get('last_clicked'):
+            c_lat = map_output['last_clicked']['lat']
+            c_lon = map_output['last_clicked']['lng']
+            unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+            unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+            closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
+            clicked_lat_val = closest['LAT']
+            clicked_lon_val = closest['LON']
+
+    if clicked_lat_val is not None and clicked_lon_val is not None:
+        if st.session_state.clicked_lat != clicked_lat_val or st.session_state.clicked_lon != clicked_lon_val:
+            st.session_state.clicked_lat = clicked_lat_val
+            st.session_state.clicked_lon = clicked_lon_val
             st.rerun()
 
 with col_detail:
@@ -333,4 +342,4 @@ with col_detail:
         else:
             st.info("해당 위치의 매체 정보를 찾을 수 없습니다.")
     else:
-        st.info("👈 좌측 지도에서 마커를 클릭하시면 상세 정보가 여기에 나타납니다.")
+        st.info("👈 좌측 지도에서 마커를 클릭하시면 상세 정보와 이미지가 여기에 나타납니다.")
