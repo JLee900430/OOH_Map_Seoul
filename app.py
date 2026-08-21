@@ -14,7 +14,7 @@ import folium
 # 페이지 설정 (와이드 모드)
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
-# 💡 요청하신 타이틀 변경 및 불필요한 텍스트 삭제 반영
+# 💡 타이틀 변경 및 불필요한 텍스트 삭제 반영
 st.title("🏙️ OOH Media in SEOUL")
 
 # 0. app.py가 위치한 절대 경로를 기준으로 설정
@@ -115,7 +115,7 @@ if selected_media != "선택 안 함":
         st.session_state.clicked_lon = target_row['LON']
         st.rerun()
 
-# 💡 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (크기 300% 확대 반영)
+# 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (고해상도 썸네일)
 def get_thumbnail_base64(row_item):
     try:
         raw_id = row_item.get('ID', '')
@@ -134,12 +134,11 @@ def get_thumbnail_base64(row_item):
             for f in os.listdir(IMAGE_DIR):
                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
                     name_no_ext = os.path.splitext(f)[0]
-                    # ID_A 형태의 파일명 매칭 (예: 313_A)
                     if name_no_ext == f"{id_str_z3}_A" or name_no_ext == f"{id_str_raw}_A" or \
                        name_no_ext == f"{id_str_z3}_a" or name_no_ext == f"{id_str_raw}_a":
                         img_path = os.path.join(IMAGE_DIR, f)
                         with Image.open(img_path) as img:
-                            img.thumbnail((600, 450))
+                            img.thumbnail((800, 600))
                             if img.mode != 'RGB':
                                 img = img.convert('RGB')
                             buffered = BytesIO()
@@ -149,14 +148,14 @@ def get_thumbnail_base64(row_item):
         pass
     return None
 
-# Folium 지도 생성 함수 (최초 1회만 생성되어 캐싱됨 + 우상단 범례 추가)
+# Folium 지도 생성 함수 (우상단 범례 및 대형 프리뷰 적용)
 def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 💡 맵 우상단 마커 컬러별 의미 레전드(범례) 추가
+    # 맵 우상단 마커 컬러별 의미 레전드(범례)
     legend_html = """
     <div style="position: fixed; 
-                top: 15px; right: 15px; width: 155px; height: 110px; 
+                top: 15px; right: 15px; width: 160px; height: 110px; 
                 background-color: white; z-index:9999; font-size:11px;
                 border:2px solid grey; border-radius: 6px; padding: 8px;
                 box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif;">
@@ -193,12 +192,12 @@ def create_map():
         price_val = first_row.get('PRICE', '')
         period_val = first_row.get('PERIOD', '')
 
-        # 💡 300% 확대된 대형 호버링 프리뷰 툴팁 (가격 및 단가 기준 포함)
+        # 💡 300% 이상 대폭 확대된 호버링 프리뷰 툴팁 (이름, 가격, 기간, ID_A 이미지 포함)
         tooltip_html = f"""
-        <div style="text-align: center; font-family: sans-serif; padding: 8px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); width: 220px;">
-            <b style="font-size: 14px; color: #222;">{tooltip_title}</b><br>
-            <div style="font-size: 12px; color: #e74c3c; font-weight: bold; margin-top: 4px;">💰 {price_val} 원 ({period_val})</div>
-            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:200px; height:150px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:11px; color:#888; margin-top:4px;">대표 이미지(ID_A) 없음</div>'}
+        <div style="text-align: center; font-family: sans-serif; padding: 10px; background: white; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); width: 320px;">
+            <b style="font-size: 16px; color: #111;">{tooltip_title}</b><br>
+            <div style="font-size: 13px; color: #e74c3c; font-weight: bold; margin-top: 6px;">💰 {price_val} 원 ({period_val})</div>
+            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:300px; height:220px; object-fit:cover; border-radius:8px; margin-top:8px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:12px; color:#888; margin-top:6px;">대표 이미지(ID_A) 없음</div>'}
         </div>
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
@@ -209,14 +208,14 @@ def create_map():
 
         html_content = f"""
         <div style="position: relative; display: inline-block; pointer-events: auto; cursor: pointer;">
-            <div style="background-color: {bg_color}; width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 10px;">
+            <div style="background-color: {bg_color}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px;">
                 {len(group) if len(group) > 1 else '📍'}
             </div>
             {badge_html}
         </div>
         """
         
-        custom_icon = folium.DivIcon(html=html_content, icon_size=(30, 30), icon_anchor=(15, 15))
+        custom_icon = folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16))
         
         folium.Marker(
             [lat, lon],
@@ -225,10 +224,6 @@ def create_map():
         ).add_to(m)
         
     return m
-
-# 지도 객체를 session_state에 캐싱
-if 'map_obj' not in st.session_state:
-    st.session_state.map_obj = create_map()
 
 # 공통 클릭 이벤트 처리 함수 (정밀 좌표 매칭)
 def handle_map_click(map_output):
@@ -247,11 +242,13 @@ def handle_map_click(map_output):
 
 # 💡 동적 레이아웃: 초기에는 전체화면 지도, 마커 클릭 시에만 2분할 뷰 전환
 if st.session_state.clicked_lat is None:
+    m = create_map()
     map_output = st_folium(
-        st.session_state.map_obj, 
+        m, 
         width=1300, 
-        height=720, 
-        returned_objects=['last_clicked']
+        height=750, 
+        returned_objects=['last_clicked'],
+        key="full_map"
     )
     handle_map_click(map_output)
 
@@ -259,11 +256,13 @@ else:
     col1, col2 = st.columns([1.6, 1])
     
     with col1:
+        m = create_map()
         map_output = st_folium(
-            st.session_state.map_obj, 
+            m, 
             width=700, 
             height=680, 
-            returned_objects=['last_clicked']
+            returned_objects=['last_clicked'],
+            key="split_map"
         )
         handle_map_click(map_output)
 
@@ -275,7 +274,6 @@ else:
             st.session_state.clicked_lon = None
             st.rerun()
             
-        # 💡 정밀한 좌표 비교를 위해 np.isclose 활용 (상세보기가 안 뜨던 문제 원천 해결)
         matched = map_data[
             np.isclose(map_data['LAT'], st.session_state.clicked_lat, atol=1e-5) & 
             np.isclose(map_data['LON'], st.session_state.clicked_lon, atol=1e-5)
