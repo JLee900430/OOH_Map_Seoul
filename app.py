@@ -5,16 +5,17 @@ import io
 import os
 import glob
 import base64
+import numpy as np
 from io import BytesIO
 from PIL import Image
 from streamlit_folium import st_folium
 import folium
 
 # 페이지 설정 (와이드 모드)
-st.set_page_config(page_title="OOH Media Mix Dashboard", layout="wide")
+st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
-st.title("🏙️ OOH Media Mix Dashboard (Auto-Mapping)")
-st.markdown("구글 시트 데이터와 폴더 내 이미지 파일명을 `ID`로 자동 매핑하여 보여주는 인터랙티브 미디어 믹스 맵입니다.")
+# 💡 요청하신 타이틀 변경 및 불필요한 텍스트 삭제 반영
+st.title("🏙️ OOH Media in SEOUL")
 
 # 0. app.py가 위치한 절대 경로를 기준으로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -114,7 +115,7 @@ if selected_media != "선택 안 함":
         st.session_state.clicked_lon = target_row['LON']
         st.rerun()
 
-# 💡 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (크기 대폭 확대)
+# 💡 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (크기 300% 확대 반영)
 def get_thumbnail_base64(row_item):
     try:
         raw_id = row_item.get('ID', '')
@@ -148,9 +149,25 @@ def get_thumbnail_base64(row_item):
         pass
     return None
 
-# Folium 지도 생성 함수 (최초 1회만 생성되어 캐싱됨)
+# Folium 지도 생성 함수 (최초 1회만 생성되어 캐싱됨 + 우상단 범례 추가)
 def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
+    
+    # 💡 맵 우상단 마커 컬러별 의미 레전드(범례) 추가
+    legend_html = """
+    <div style="position: fixed; 
+                top: 15px; right: 15px; width: 155px; height: 110px; 
+                background-color: white; z-index:9999; font-size:11px;
+                border:2px solid grey; border-radius: 6px; padding: 8px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif;">
+      <b>🎨 마커 컬러 의미</b><br>
+      <div style="margin-top: 4px;"><span style="background:#3498db; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> LED</div>
+      <div style="margin-top: 2px;"><span style="background:#2ecc71; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> STATIC</div>
+      <div style="margin-top: 2px;"><span style="background:#9b59b6; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> LED + STATIC</div>
+      <div style="margin-top: 2px;"><span style="background:#e74c3c; width:10px; height:10px; display:inline-block; border-radius:3px; margin-right:5px;"></span> 불법 매체 뱃지</div>
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
     
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
         types = group['TYPE'].astype(str).tolist()
@@ -176,12 +193,12 @@ def create_map():
         price_val = first_row.get('PRICE', '')
         period_val = first_row.get('PERIOD', '')
 
-        # 💡 호버링 프리뷰 툴팁 (이름, 가격, 기간, ID_A 이미지 포함)
+        # 💡 300% 확대된 대형 호버링 프리뷰 툴팁 (가격 및 단가 기준 포함)
         tooltip_html = f"""
-        <div style="text-align: center; font-family: sans-serif; padding: 8px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); width: 230px;">
+        <div style="text-align: center; font-family: sans-serif; padding: 8px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); width: 220px;">
             <b style="font-size: 14px; color: #222;">{tooltip_title}</b><br>
             <div style="font-size: 12px; color: #e74c3c; font-weight: bold; margin-top: 4px;">💰 {price_val} 원 ({period_val})</div>
-            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:210px; height:150px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:11px; color:#888; margin-top:4px;">대표 이미지(ID_A) 없음</div>'}
+            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:200px; height:150px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:11px; color:#888; margin-top:4px;">대표 이미지(ID_A) 없음</div>'}
         </div>
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
@@ -213,7 +230,7 @@ def create_map():
 if 'map_obj' not in st.session_state:
     st.session_state.map_obj = create_map()
 
-# 공통 클릭 이벤트 처리 함수 (가장 가까운 마커 좌표 매칭)
+# 공통 클릭 이벤트 처리 함수 (정밀 좌표 매칭)
 def handle_map_click(map_output):
     if map_output and map_output.get('last_clicked'):
         c_lat = map_output['last_clicked']['lat']
@@ -228,13 +245,12 @@ def handle_map_click(map_output):
             st.session_state.clicked_lon = closest['LON']
             st.rerun()
 
-# 💡 동적 레이아웃: 마커 클릭 전에는 전체화면 지도, 클릭 후에는 2분할 뷰 전환
+# 💡 동적 레이아웃: 초기에는 전체화면 지도, 마커 클릭 시에만 2분할 뷰 전환
 if st.session_state.clicked_lat is None:
-    st.subheader("📍 매체 위치 맵 (마커에 마우스를 올리면 미리보기가, 클릭하면 상세 정보가 나타납니다)")
     map_output = st_folium(
         st.session_state.map_obj, 
         width=1300, 
-        height=700, 
+        height=720, 
         returned_objects=['last_clicked']
     )
     handle_map_click(map_output)
@@ -243,11 +259,10 @@ else:
     col1, col2 = st.columns([1.6, 1])
     
     with col1:
-        st.subheader("📍 매체 위치 맵")
         map_output = st_folium(
             st.session_state.map_obj, 
             width=700, 
-            height=650, 
+            height=680, 
             returned_objects=['last_clicked']
         )
         handle_map_click(map_output)
@@ -260,9 +275,10 @@ else:
             st.session_state.clicked_lon = None
             st.rerun()
             
+        # 💡 정밀한 좌표 비교를 위해 np.isclose 활용 (상세보기가 안 뜨던 문제 원천 해결)
         matched = map_data[
-            (map_data['LAT'].round(4) == round(st.session_state.clicked_lat, 4)) & 
-            (map_data['LON'].round(4) == round(st.session_state.clicked_lon, 4))
+            np.isclose(map_data['LAT'], st.session_state.clicked_lat, atol=1e-5) & 
+            np.isclose(map_data['LON'], st.session_state.clicked_lon, atol=1e-5)
         ]
         
         if not matched.empty:
