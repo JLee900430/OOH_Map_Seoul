@@ -14,9 +14,6 @@ import folium
 # 페이지 설정 (와이드 모드)
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
-# 타이틀 설정
-st.title("🏙️ OOH Media in SEOUL")
-
 # 0. app.py가 위치한 절대 경로를 기준으로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -80,7 +77,7 @@ map_data = df.dropna(subset=['LAT', 'LON'])
 if len(map_data) == 0:
     st.warning("⚠️ 지도에 표시할 마커가 없습니다. 구글 시트의 `LOCATION`(주소) 컬럼명이나 카카오 API 키를 확인해 주세요!")
 
-# Session State 초기화 (선택된 마커 및 지도 위치/줌 유지)
+# Session State 초기화
 if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
@@ -105,7 +102,7 @@ if selected_media != "선택 안 함":
         st.session_state.map_zoom = 14
         st.rerun()
 
-# 💡 [속도 개선] 폴더 내 모든 이미지를 단 한 번만 스캔하여 딕셔너리로 캐싱
+# 💡 [속도 극대화] 폴더 내 이미지를 앱 시작 시 단 1번만 메모리에 캐싱
 @st.cache_data
 def build_image_map(img_dir):
     img_map = {}
@@ -118,13 +115,12 @@ def build_image_map(img_dir):
 
 IMAGE_MAP = build_image_map(IMAGE_DIR)
 
-# 썸네일 변환 함수 (캐시 적용)
 @st.cache_data
 def get_thumbnail_base64(img_path):
     try:
         if img_path and os.path.exists(img_path):
             with Image.open(img_path) as img:
-                img.thumbnail((600, 450))
+                img.thumbnail((400, 300))
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 buffered = BytesIO()
@@ -154,30 +150,31 @@ def find_thumbnail_for_id(raw_id):
         pass
     return None
 
-# Folium 지도 생성 함수 (기억된 중심 좌표, 줌 레벨 및 원래 마커 색상 규칙 적용)
+# Folium 지도 생성 함수 (좌상단 타이틀 & 가독성 높은 범례 배치)
 def create_map(center, zoom):
     m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB positron')
     
-    # 💡 범례 박스 텍스트 잘림 해결 (넉넉한 크기 및 패딩)
-    legend_html = """
+    # 💡 좌상단 가독성 좋은 범례 및 타이틀 박스
+    title_legend_html = """
     <div style="position: fixed; 
-                top: 15px; right: 15px; width: 160px; height: 120px; 
+                top: 15px; left: 60px; width: 220px; height: 135px; 
                 background-color: white; z-index:9999; font-size:12px;
-                border:2px solid grey; border-radius: 6px; padding: 10px;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif; line-height: 1.7;">
+                border:2px solid #ccc; border-radius: 8px; padding: 10px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif; line-height: 1.5;">
+      <b style="font-size: 14px; color: #111;">🏙️ OOH Media in SEOUL</b><hr style="margin: 5px 0; border:0; border-top:1px solid #eee;">
       <div><span style="background:#3498db; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> LED</div>
       <div><span style="background:#2ecc71; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> STATIC</div>
       <div><span style="background:#9b59b6; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px; vertical-align: middle;"></span> LED + STATIC</div>
       <div><span style="background:#e74c3c; width:12px; height:12px; display:inline-block; border-radius:3px; margin-right:6px; vertical-align: middle;"></span> 불법 매체</div>
     </div>
     """
-    m.get_root().html.add_child(folium.Element(legend_html))
+    m.get_root().html.add_child(folium.Element(title_legend_html))
     
     for (lat, lon), group in map_data.groupby(['LAT', 'LON']):
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
         
-        # 💡 마커 컬러 규칙: LED, STATIC, LED + STATIC
+        # 마커 컬러 규칙: LED, STATIC, LED + STATIC
         if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
             bg_color = '#9b59b6'  # 보라색
         elif 'LED' in type_str:
@@ -187,23 +184,26 @@ def create_map(center, zoom):
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
-        first_row = group.iloc[0]
-        thumb_b64 = find_thumbnail_for_id(first_row.get('ID', ''))
-        
-        if len(group) > 1:
-            tooltip_title = f"{first_row['NAME']} 외 {len(group)-1}개"
-        else:
-            tooltip_title = first_row['NAME']
+        # 💡 동일 위치 매체가 여러 개인 경우 호버링 프리뷰에 모두 표시
+        tooltip_items_html = ""
+        for _, row in group.iterrows():
+            m_name = row.get('NAME', '')
+            m_price = row.get('PRICE', '')
+            m_period = row.get('PERIOD', '')
+            thumb_b64 = find_thumbnail_for_id(row.get('ID', ''))
+            
+            tooltip_items_html += f"""
+            <div style="border-bottom: 1px solid #eee; padding: 6px 0; text-align: left;">
+                <b style="font-size: 13px; color: #111;">{m_name}</b><br>
+                <span style="font-size: 12px; color: #e74c3c; font-weight: bold;">💰 {m_price} 원 ({m_period})</span>
+                {f'<br><img src="data:image/jpeg;base64,{thumb_b64}" style="width:240px; height:160px; object-fit:cover; border-radius:6px; margin-top:6px; border:1px solid #ccc;" />' if thumb_b64 else ''}
+            </div>
+            """
 
-        price_val = first_row.get('PRICE', '')
-        period_val = first_row.get('PERIOD', '')
-
-        # 300% 대형 호버링 프리뷰 (가격, 단가 기준, ID_A 이미지 포함)
         tooltip_html = f"""
-        <div style="text-align: center; font-family: sans-serif; padding: 10px; background: white; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); width: 320px;">
-            <b style="font-size: 16px; color: #111;">{tooltip_title}</b><br>
-            <div style="font-size: 13px; color: #e74c3c; font-weight: bold; margin-top: 6px;">💰 {price_val} 원 ({period_val})</div>
-            {f'<img src="data:image/jpeg;base64,{thumb_b64}" style="width:300px; height:220px; object-fit:cover; border-radius:8px; margin-top:8px; border:1px solid #ccc;" />' if thumb_b64 else '<div style="font-size:12px; color:#888; margin-top:6px;">대표 이미지(ID_A) 없음</div>'}
+        <div style="font-family: sans-serif; padding: 6px; background: white; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); max-height: 350px; overflow-y: auto; width: 280px;">
+            <div style="font-size: 11px; font-weight: bold; color: #555; margin-bottom: 4px;">📍 이 위치의 매체 ({len(group)}개)</div>
+            {tooltip_items_html}
         </div>
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
@@ -244,11 +244,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 💡 고정 2분할 레이아웃 적용 (지도가 리렌더링될 때 줌과 위치가 풀리는 현상 원천 차단 및 즉각적인 반응 속도 확보)
+# 💡 고정 3.5:1.5 레이아웃 (지도 영역 크기가 변하지 않아 줌/위치 리셋 및 딜레이 원천 차단)
 col_map, col_detail = st.columns([3.5, 1.5] if st.session_state.clicked_lat is not None else [5, 0.001])
 
 with col_map:
-    # 기억된 맵 중심과 줌 레벨 전달
     m = create_map(st.session_state.map_center, st.session_state.map_zoom)
     map_output = st_folium(
         m, 
@@ -259,13 +258,11 @@ with col_map:
     )
     
     if map_output:
-        # 지도 중심과 줌 상태 유지
         if 'center' in map_output and map_output['center']:
             st.session_state.map_center = [map_output['center']['lat'], map_output['center']['lng']]
         if 'zoom' in map_output and map_output['zoom']:
             st.session_state.map_zoom = map_output['zoom']
 
-        # 마커 클릭 감지
         if map_output.get('last_clicked'):
             c_lat = map_output['last_clicked']['lat']
             c_lon = map_output['last_clicked']['lng']
