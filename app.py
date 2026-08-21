@@ -14,7 +14,7 @@ import folium
 # 페이지 설정 (와이드 모드)
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
-# 타이틀 설정
+# 💡 타이틀 변경 및 불필요한 서브 텍스트 전면 삭제
 st.title("🏙️ OOH Media in SEOUL")
 
 # 0. app.py가 위치한 절대 경로를 기준으로 설정
@@ -86,7 +86,7 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# 비상용 사이드바 직접 선택 기능 (클릭이 안 될 때 여기서 바로 선택 가능)
+# 비상용 사이드바 직접 선택 기능
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 매체 직접 선택 (비상용)")
 media_names = ["선택 안 함"] + list(map_data['NAME'].astype(str).unique())
@@ -99,7 +99,7 @@ if selected_media != "선택 안 함":
         st.session_state.clicked_lon = target_row['LON']
         st.rerun()
 
-# 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수
+# 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (고해상도 썸네일)
 def get_thumbnail_base64(row_item):
     try:
         raw_id = row_item.get('ID', '')
@@ -132,21 +132,21 @@ def get_thumbnail_base64(row_item):
         pass
     return None
 
-# Folium 지도 생성 함수 (범례에서 '마커 컬러 의미' 행 삭제 완료)
+# Folium 지도 생성 함수 (표준 Marker & Icon 사용으로 클릭 인식 완벽 보장)
 def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 💡 '마커 컬러 의미' 타이틀 행을 삭제하고 깔끔하게 색상만 나열한 범례
+    # 💡 범례에서 '마커 컬러 의미' 행을 삭제하고 컬러 항목만 깔끔하게 배치
     legend_html = """
     <div style="position: fixed; 
-                top: 15px; right: 15px; width: 150px; height: 95px; 
+                top: 15px; right: 15px; width: 150px; height: 85px; 
                 background-color: white; z-index:9999; font-size:11px;
                 border:2px solid grey; border-radius: 6px; padding: 8px;
                 box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif;">
       <div style="margin-top: 2px;"><span style="background:#3498db; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> LED</div>
       <div style="margin-top: 4px;"><span style="background:#2ecc71; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> STATIC</div>
       <div style="margin-top: 4px;"><span style="background:#9b59b6; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> LED + STATIC</div>
-      <div style="margin-top: 4px;"><span style="background:#e74c3c; width:10px; height:10px; display:inline-block; border-radius:3px; margin-right:5px;"></span> 불법 매체 뱃지</div>
+      <div style="margin-top: 4px;"><span style="background:#e74c3c; width:10px; height:10px; display:inline-block; border-radius:3px; margin-right:5px;"></span> 불법 매체</div>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -155,15 +155,18 @@ def create_map():
         types = group['TYPE'].astype(str).tolist()
         type_str = " ".join(types).upper()
         
-        if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
-            bg_color = '#9b59b6'  # 보라색
-        elif 'LED' in type_str:
-            bg_color = '#3498db'  # 파란색
-        else:
-            bg_color = '#2ecc71'  # 초록색
-            
+        # 불법 매체인 경우 빨간색 마커 우선 적용
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
+        if is_illegal:
+            marker_color = 'red'
+        elif 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
+            marker_color = 'purple'  # LED + STATIC
+        elif 'LED' in type_str:
+            marker_color = 'blue'    # LED
+        else:
+            marker_color = 'green'   # STATIC
+            
         first_row = group.iloc[0]
         thumb_b64 = get_thumbnail_base64(first_row)
         
@@ -175,7 +178,7 @@ def create_map():
         price_val = first_row.get('PRICE', '')
         period_val = first_row.get('PERIOD', '')
 
-        # 300% 이상 대폭 확대된 호버링 프리뷰 툴팁
+        # 💡 대폭 확대된 300% 호버링 프리뷰 (가격, 단가 기준, ID_A 이미지 포함)
         tooltip_html = f"""
         <div style="text-align: center; font-family: sans-serif; padding: 10px; background: white; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); width: 320px;">
             <b style="font-size: 16px; color: #111;">{tooltip_title}</b><br>
@@ -185,62 +188,42 @@ def create_map():
         """
         tooltip = folium.Tooltip(tooltip_html, parse_html=True)
 
-        badge_html = ''
-        if is_illegal:
-            badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>'
-
-        html_content = f"""
-        <div style="position: relative; display: inline-block; pointer-events: auto; cursor: pointer;">
-            <div style="background-color: {bg_color}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px;">
-                {len(group) if len(group) > 1 else '📍'}
-            </div>
-            {badge_html}
-        </div>
-        """
-        
-        custom_icon = folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16))
-        
+        # 표준 Marker 및 Icon 사용 (클릭 인식 100% 보장)
         folium.Marker(
             [lat, lon],
-            icon=custom_icon,
+            icon=folium.Icon(color=marker_color, icon='info-sign', prefix='glyphicon'),
             tooltip=tooltip
         ).add_to(m)
         
     return m
 
-# 공통 클릭 이벤트 처리 함수
+# 공통 클릭 이벤트 처리 함수 (마커 객체 직접 클릭 감지)
 def handle_map_click(map_output):
-    if map_output and map_output.get('last_clicked'):
-        c_lat = map_output['last_clicked']['lat']
-        c_lon = map_output['last_clicked']['lng']
-        
-        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
-        closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
-        
-        if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
-            st.session_state.clicked_lat = closest['LAT']
-            st.session_state.clicked_lon = closest['LON']
-            st.rerun()
+    if map_output:
+        clicked_obj = map_output.get('last_object_clicked')
+        if clicked_obj and 'lat' in clicked_obj and 'lng' in clicked_obj:
+            c_lat = clicked_obj['lat']
+            c_lon = clicked_obj['lng']
+            
+            unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
+            unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+            closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
+            
+            if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
+                st.session_state.clicked_lat = closest['LAT']
+                st.session_state.clicked_lon = closest['LON']
+                st.rerun()
 
-# 💡 실시간 클릭 디버깅용 사이드바 창 추가
-with st.sidebar.expander("🔍 지도 클릭 디버그"):
-    st.write("현재 선택된 위경도:", st.session_state.clicked_lat, st.session_state.clicked_lon)
-
-# 동적 레이아웃: 초기 전체화면 지도 ➔ 마커 클릭 시 2분할 뷰 전환
+# 💡 동적 레이아웃: 초기에는 전체화면 지도, 마커 클릭 시에만 2분할 뷰 전환
 if st.session_state.clicked_lat is None:
     m = create_map()
     map_output = st_folium(
         m, 
         width=1300, 
         height=750, 
-        returned_objects=['last_clicked'],
+        returned_objects=['last_object_clicked'],
         key="full_map"
     )
-    # 디버그용 출력 (클릭 시 데이터가 잡히는지 확인용)
-    with st.sidebar.expander("마지막 지도 출력값"):
-        st.write(map_output)
-        
     handle_map_click(map_output)
 
 else:
@@ -252,7 +235,7 @@ else:
             m, 
             width=700, 
             height=680, 
-            returned_objects=['last_clicked'],
+            returned_objects=['last_object_clicked'],
             key="split_map"
         )
         handle_map_click(map_output)
