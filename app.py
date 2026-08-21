@@ -14,7 +14,7 @@ import folium
 # 페이지 설정 (와이드 모드)
 st.set_page_config(page_title="OOH Media in SEOUL", layout="wide")
 
-# 💡 타이틀 변경 및 불필요한 텍스트 삭제 반영
+# 타이틀 설정
 st.title("🏙️ OOH Media in SEOUL")
 
 # 0. app.py가 위치한 절대 경로를 기준으로 설정
@@ -35,19 +35,6 @@ elif os.path.isabs(user_img_dir):
 else:
     IMAGE_DIR = os.path.join(BASE_DIR, user_img_dir)
 
-# 디버깅용: 폴더 내 실제 이미지 파일 존재 여부 확인
-with st.sidebar.expander("🔍 이미지 폴더 진단"):
-    st.write(f"현재 인식된 절대 폴더 경로: `{IMAGE_DIR}`")
-    if os.path.exists(IMAGE_DIR):
-        found_files = os.listdir(IMAGE_DIR)
-        st.success(f"폴더 안의 전체 파일 수: {len(found_files)}개")
-        if len(found_files) > 0:
-            st.write("샘플 파일명:", found_files[:5])
-        else:
-            st.warning("폴더는 존재하지만 안에 파일이 없습니다!")
-    else:
-        st.error("지정한 폴더 경로를 찾을 수 없습니다.")
-
 # 1. 구글 시트 데이터 로드 (캐싱 적용)
 @st.cache_data(ttl=60)
 def load_data(url):
@@ -59,9 +46,6 @@ def load_data(url):
 
 try:
     df = load_data(SHEET_URL)
-    with st.sidebar.expander("🔍 구글 시트 진단"):
-        st.write("불러온 컬럼 목록:", list(df.columns))
-        st.write(f"전체 행 개수: {len(df)}개")
 except Exception as e:
     st.error(f"구글 시트 데이터를 불러오는 데 실패했습니다: {e}")
     st.stop()
@@ -102,9 +86,9 @@ if 'clicked_lat' not in st.session_state:
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
 
-# 비상용 사이드바 직접 선택 기능
+# 비상용 사이드바 직접 선택 기능 (클릭이 안 될 때 여기서 바로 선택 가능)
 st.sidebar.markdown("---")
-st.sidebar.subheader("🎯 매체 직접 선택")
+st.sidebar.subheader("🎯 매체 직접 선택 (비상용)")
 media_names = ["선택 안 함"] + list(map_data['NAME'].astype(str).unique())
 selected_media = st.sidebar.selectbox("매체명으로 바로 보기", media_names)
 
@@ -115,7 +99,7 @@ if selected_media != "선택 안 함":
         st.session_state.clicked_lon = target_row['LON']
         st.rerun()
 
-# 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수 (고해상도 썸네일)
+# 호버링 프리뷰용 대표 이미지(ID_A)를 찾는 함수
 def get_thumbnail_base64(row_item):
     try:
         raw_id = row_item.get('ID', '')
@@ -148,22 +132,21 @@ def get_thumbnail_base64(row_item):
         pass
     return None
 
-# Folium 지도 생성 함수 (우상단 범례 및 대형 프리뷰 적용)
+# Folium 지도 생성 함수 (범례에서 '마커 컬러 의미' 행 삭제 완료)
 def create_map():
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 맵 우상단 마커 컬러별 의미 레전드(범례)
+    # 💡 '마커 컬러 의미' 타이틀 행을 삭제하고 깔끔하게 색상만 나열한 범례
     legend_html = """
     <div style="position: fixed; 
-                top: 15px; right: 15px; width: 160px; height: 110px; 
+                top: 15px; right: 15px; width: 150px; height: 95px; 
                 background-color: white; z-index:9999; font-size:11px;
                 border:2px solid grey; border-radius: 6px; padding: 8px;
                 box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif;">
-      <b>🎨 마커 컬러 의미</b><br>
-      <div style="margin-top: 4px;"><span style="background:#3498db; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> LED</div>
-      <div style="margin-top: 2px;"><span style="background:#2ecc71; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> STATIC</div>
-      <div style="margin-top: 2px;"><span style="background:#9b59b6; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> LED + STATIC</div>
-      <div style="margin-top: 2px;"><span style="background:#e74c3c; width:10px; height:10px; display:inline-block; border-radius:3px; margin-right:5px;"></span> 불법 매체 뱃지</div>
+      <div style="margin-top: 2px;"><span style="background:#3498db; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> LED</div>
+      <div style="margin-top: 4px;"><span style="background:#2ecc71; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> STATIC</div>
+      <div style="margin-top: 4px;"><span style="background:#9b59b6; width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px;"></span> LED + STATIC</div>
+      <div style="margin-top: 4px;"><span style="background:#e74c3c; width:10px; height:10px; display:inline-block; border-radius:3px; margin-right:5px;"></span> 불법 매체 뱃지</div>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -173,11 +156,11 @@ def create_map():
         type_str = " ".join(types).upper()
         
         if 'LED' in type_str and ('STATIC' in type_str or '+' in type_str):
-            bg_color = '#9b59b6'  # 보라색 (LED + STATIC)
+            bg_color = '#9b59b6'  # 보라색
         elif 'LED' in type_str:
-            bg_color = '#3498db'  # 파란색 (LED)
+            bg_color = '#3498db'  # 파란색
         else:
-            bg_color = '#2ecc71'  # 초록색 (STATIC)
+            bg_color = '#2ecc71'  # 초록색
             
         is_illegal = any("불법" in str(val).replace(" ", "") for val in group['LEGAL'].values)
         
@@ -192,7 +175,7 @@ def create_map():
         price_val = first_row.get('PRICE', '')
         period_val = first_row.get('PERIOD', '')
 
-        # 💡 300% 이상 대폭 확대된 호버링 프리뷰 툴팁 (이름, 가격, 기간, ID_A 이미지 포함)
+        # 300% 이상 대폭 확대된 호버링 프리뷰 툴팁
         tooltip_html = f"""
         <div style="text-align: center; font-family: sans-serif; padding: 10px; background: white; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); width: 320px;">
             <b style="font-size: 16px; color: #111;">{tooltip_title}</b><br>
@@ -225,7 +208,7 @@ def create_map():
         
     return m
 
-# 공통 클릭 이벤트 처리 함수 (정밀 좌표 매칭)
+# 공통 클릭 이벤트 처리 함수
 def handle_map_click(map_output):
     if map_output and map_output.get('last_clicked'):
         c_lat = map_output['last_clicked']['lat']
@@ -240,7 +223,11 @@ def handle_map_click(map_output):
             st.session_state.clicked_lon = closest['LON']
             st.rerun()
 
-# 💡 동적 레이아웃: 초기에는 전체화면 지도, 마커 클릭 시에만 2분할 뷰 전환
+# 💡 실시간 클릭 디버깅용 사이드바 창 추가
+with st.sidebar.expander("🔍 지도 클릭 디버그"):
+    st.write("현재 선택된 위경도:", st.session_state.clicked_lat, st.session_state.clicked_lon)
+
+# 동적 레이아웃: 초기 전체화면 지도 ➔ 마커 클릭 시 2분할 뷰 전환
 if st.session_state.clicked_lat is None:
     m = create_map()
     map_output = st_folium(
@@ -250,6 +237,10 @@ if st.session_state.clicked_lat is None:
         returned_objects=['last_clicked'],
         key="full_map"
     )
+    # 디버그용 출력 (클릭 시 데이터가 잡히는지 확인용)
+    with st.sidebar.expander("마지막 지도 출력값"):
+        st.write(map_output)
+        
     handle_map_click(map_output)
 
 else:
