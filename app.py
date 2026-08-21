@@ -150,7 +150,6 @@ def create_map(data_hash, is_mix_mode):
             """
             
             if not is_mix_mode:
-                # 💡 클릭 팝업용 이미지 크기를 1/2로 축소 (높이 170px)
                 img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
                 img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
                 
@@ -181,13 +180,23 @@ def create_map(data_hash, is_mix_mode):
         """
         
         if is_mix_mode:
+            # 1. 시각적 마커
             folium.Marker(
                 [lat, lon], 
                 icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
                 tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto')
             ).add_to(m)
+            # 2. 💡 클릭 인식을 100% 보장하는 투명 감지 레이어 (CircleMarker)
+            folium.CircleMarker(
+                [lat, lon],
+                radius=18,
+                color='transparent',
+                fill=True,
+                fill_color='transparent',
+                fill_opacity=0,
+                weight=0
+            ).add_to(m)
         else:
-            # 💡 클릭 팝업창 크기 1/2 축소 (가로 450px, 최대 높이 380px)
             popup_html = f"""<div style="font-family: sans-serif; width: 450px; max-height: 380px; overflow-y: auto; padding: 12px;">{popup_items}</div>"""
             folium.Marker(
                 [lat, lon], 
@@ -202,7 +211,8 @@ map_obj = create_map(len(map_data), st.session_state.mix_mode)
 
 if st.session_state.mix_mode:
     col_map, col_mix = st.columns([7, 3])
-    returned_objects = ['last_clicked']
+    # 💡 투명 CircleMarker와 지도 클릭을 모두 감지하도록 설정
+    returned_objects = ['last_object_clicked', 'last_clicked']
 else:
     col_map = st.container()
     col_mix = None
@@ -213,13 +223,22 @@ with col_map:
         st.info("👆 지도에서 마커를 클릭하여 우측 믹스 보드에 매체를 추가하세요.")
     map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
 
-if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
-    c_lat, c_lon = map_output['last_clicked']['lat'], map_output['last_clicked']['lng']
-    current_click = f"{c_lat}_{c_lon}"
+# 💡 마커 클릭(last_object_clicked) 또는 지도 클릭(last_clicked) 모두 완벽 대응
+clicked_lat, clicked_lon = None, None
+if st.session_state.mix_mode and map_output:
+    if map_output.get('last_object_clicked'):
+        clicked_lat = map_output['last_object_clicked']['lat']
+        clicked_lon = map_output['last_object_clicked']['lng']
+    elif map_output.get('last_clicked'):
+        clicked_lat = map_output['last_clicked']['lat']
+        clicked_lon = map_output['last_clicked']['lng']
+
+if clicked_lat is not None and clicked_lon is not None:
+    current_click = f"{clicked_lat}_{clicked_lon}"
     
     if current_click != st.session_state.last_added_coords:
         unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-        unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
+        unique_coords['dist_sq'] = (unique_coords['LAT'] - clicked_lat)**2 + (unique_coords['LON'] - clicked_lon)**2
         closest_idx = unique_coords['dist_sq'].idxmin()
         
         if unique_coords.loc[closest_idx, 'dist_sq'] < 0.002:
@@ -251,7 +270,7 @@ if st.session_state.mix_mode and col_mix:
                     st.markdown(f"**{item['NAME']}**")
                     st.caption(f"{item['TYPE']} | {item['PRICE']}원")
                 with col_del:
-                    if st.button("❌", key=f"del_{idx}"):
+                    if st.button("❌", key=f>del_{idx}"):
                         st.session_state.mix_list.pop(idx)
                         st.session_state.last_added_coords = None
                         st.rerun()
