@@ -137,7 +137,7 @@ def find_thumbnail_for_id(raw_id):
 def create_map(data_hash, img_dir):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 좌상단 타이틀 & 범례 (텍스트 중복 삭제 유지)
+    # 좌상단 타이틀 & 범례
     title_legend_html = """
     <div style="position: fixed; 
                 top: 15px; left: 60px; width: 220px; height: 135px; 
@@ -200,7 +200,7 @@ def create_map(data_hash, img_dir):
         if is_illegal:
             badge_html = '<div style="position: absolute; top: -10px; right: -16px; background-color: #e74c3c; color: white; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; border: 1px solid white; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); z-index: 10;">불법</div>'
 
-        # 💡 클릭 인식을 100% 보장하는 pointer-events: none 최적화
+        # 💡 [핵심 기술 1] 디자인 HTML 요소는 마우스 이벤트(클릭)를 무시하도록 pointer-events: none 적용
         html_content = f"""
         <div style="position: relative; pointer-events: none;">
             <div style="background-color: {bg_color}; width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px;">
@@ -209,12 +209,18 @@ def create_map(data_hash, img_dir):
             {badge_html}
         </div>
         """
-        
         custom_icon = folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16))
         
-        folium.Marker(
-            [lat, lon],
-            icon=custom_icon,
+        # 디자인용 마커 렌더링 (호버링 툴팁 없음)
+        folium.Marker([lat, lon], icon=custom_icon).add_to(m)
+        
+        # 💡 [핵심 기술 2] 투명한 CircleMarker를 덮어씌워 100% 확률로 클릭과 호버링 이벤트를 낚아챔
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=16,
+            stroke=False,
+            fill=True,
+            fill_opacity=0.0, # 완벽히 투명함
             tooltip=tooltip
         ).add_to(m)
         
@@ -222,17 +228,16 @@ def create_map(data_hash, img_dir):
 
 map_obj = create_map(len(map_data), IMAGE_DIR)
 
-# 💡 지도는 레이아웃 분할 없이 항상 전체화면(Full Width)으로 유지됩니다! 
-# 이로 인해 지도가 재렌더링되지 않으며 확대/축소 줌이 절대 초기화되지 않습니다.
+# 💡 [핵심 기술 3] 분할 레이아웃 폐기: 지도를 항상 전체화면으로 고정하여 줌 풀림 및 로딩 지연 원천 차단
 map_output = st_folium(
     map_obj, 
     width="100%", 
     height=850, 
-    returned_objects=['last_object_clicked'], # 오직 클릭 이벤트만 수신하여 새로고침 최소화
+    returned_objects=['last_object_clicked'], # 오직 클릭만 감지 (줌/이동 시 리렌더링 방지)
     key="main_fullscreen_map"
 )
 
-# 마커 클릭 감지 로직
+# 💡 [핵심 기술 4] st.rerun() 제거: Streamlit 자체 동작을 활용하여 더블 로딩 지연 현상 방지
 if map_output and map_output.get('last_object_clicked'):
     c_lat = map_output['last_object_clicked']['lat']
     c_lon = map_output['last_object_clicked']['lng']
@@ -241,35 +246,32 @@ if map_output and map_output.get('last_object_clicked'):
     unique_coords['dist_sq'] = (unique_coords['LAT'] - c_lat)**2 + (unique_coords['LON'] - c_lon)**2
     closest = unique_coords.loc[unique_coords['dist_sq'].idxmin()]
     
-    if st.session_state.clicked_lat != closest['LAT'] or st.session_state.clicked_lon != closest['LON']:
-        st.session_state.clicked_lat = closest['LAT']
-        st.session_state.clicked_lon = closest['LON']
-        st.rerun()
+    st.session_state.clicked_lat = closest['LAT']
+    st.session_state.clicked_lon = closest['LON']
 
-# 💡 우측에 꽉 차게 나타나는 오버레이(팝업) 패널 구현
+# 우측 오버레이(팝업) 애니메이션 패널
 if st.session_state.clicked_lat is not None:
-    # 가장 깊은 컨테이너만 타겟팅하여 우측에서 슬라이드인 시키는 최신 CSS 트릭
     with st.container():
-        st.markdown('<span class="right-panel-marker"></span>', unsafe_allow_html=True)
+        st.markdown('<span class="drawer-marker"></span>', unsafe_allow_html=True)
         st.markdown("""
         <style>
-        div[data-testid="stVerticalBlock"]:has(> div.element-container .right-panel-marker):not(:has(div[data-testid="stVerticalBlock"] .right-panel-marker)) {
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .drawer-marker):not(:has(div[data-testid="stVerticalBlock"] .drawer-marker)) {
             position: fixed !important;
             top: 0 !important;
             right: 0 !important;
-            width: 480px !important;
+            width: 550px !important;
             max-width: 90vw !important;
             height: 100vh !important;
-            background-color: #f8f9fa !important;
+            background-color: #fcfcfc !important;
             z-index: 999999 !important;
-            box-shadow: -8px 0 25px rgba(0,0,0,0.2) !important;
-            padding: 3rem 2rem !important;
+            box-shadow: -8px 0 30px rgba(0,0,0,0.3) !important;
+            padding: 3rem 2.5rem !important;
             overflow-y: auto !important;
             animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
         }
         @keyframes slideInRight {
-            from { transform: translateX(100%); }
-            to { transform: translateX(0); }
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
         </style>
         """, unsafe_allow_html=True)
