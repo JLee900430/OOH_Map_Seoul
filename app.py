@@ -66,7 +66,6 @@ if 'LAT' not in df.columns or 'LON' not in df.columns:
 
 map_data = df.dropna(subset=['LAT', 'LON'])
 
-# GitHub Raw 원본 이미지 링크 생성
 def get_github_image_urls(raw_id):
     try:
         id_str = str(raw_id).strip()
@@ -81,11 +80,11 @@ def format_text_with_br(val):
     if pd.isna(val): return ""
     return str(val).replace('\n', '<br>')
 
-# 💡 캐싱 데코레이터 제거: 매번 지도가 새로 그려지면서 클릭 이벤트 리스너가 정상 작동합니다.
+# 💡 지도 생성 함수 캐싱 적용 (속도 대폭 개선)
+@st.cache_resource
 def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
-    # 툴팁 및 팝업 스타일 CSS 최적화
     custom_css = """
     <style>
     .leaflet-tooltip {
@@ -134,8 +133,6 @@ def create_map(data_hash, is_mix_mode):
             m_details = format_text_with_br(row.get('Details', ''))
             
             img_urls = get_github_image_urls(row.get('ID', ''))
-            
-            # 호버링 툴팁용 이미지 (가로형)
             img_tag_small = f'<img src="{img_urls[0]}" style="width: 120px; height: 95px; object-fit: cover; border-radius: 6px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
             
             tooltip_items += f"""
@@ -145,14 +142,11 @@ def create_map(data_hash, is_mix_mode):
                     <span style="font-size: 11px; color: #555; display: block; margin-bottom: 2px;"><b>유형:</b> {m_type}</span>
                     <span style="font-size: 12px; color: #e74c3c; font-weight: bold;">💰 {m_price}원</span>
                 </div>
-                <div style="flex-shrink: 0;">
-                    {img_tag_small}
-                </div>
+                <div style="flex-shrink: 0;">{img_tag_small}</div>
             </div>
             """
             
             if not is_mix_mode:
-                # 클릭 팝업용 이미지 (1/2 축소 크기)
                 img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
                 img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
                 
@@ -164,15 +158,11 @@ def create_map(data_hash, is_mix_mode):
                         <div style="text-align:right; color:#e74c3c;"><b>단가:</b> {m_price}원<br>({m_period})</div>
                     </div>
                     <p style="margin:2px 0 10px 0; font-size:11px; color:#444; line-height:1.4;">{m_details}</p>
-                    <div style="display:flex; justify-content:space-between; gap:6px;">
-                        {img_tag_large_1}
-                        {img_tag_large_2}
-                    </div>
+                    <div style="display:flex; justify-content:space-between; gap:6px;">{img_tag_large_1}{img_tag_large_2}</div>
                 </div>
                 """
 
         tooltip_html = f"""<div style="font-family: sans-serif; padding: 2px; width: 380px;">{tooltip_items}</div>"""
-        
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
         
         html_content = f"""
@@ -206,7 +196,7 @@ returned_objects = ['last_clicked']
 
 with col_map:
     if st.session_state.mix_mode:
-        st.info("👆 지도에서 마커 근처를 클릭하시면 우측 믹스 보드에 매체가 자동으로 추가됩니다.")
+        st.info("👆 지도에서 마커를 클릭하거나, 우측 보드의 검색창을 통해 100% 정확하게 추가하세요.")
     map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
 
 # 💡 지도 클릭 좌표 기반 스마트 매체 매칭 시스템
@@ -241,14 +231,35 @@ if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
                 else:
                     st.toast("⚠️ 이미 미디어 믹스 보드에 담긴 매체입니다.", icon="ℹ️")
 
-# 우측 미디어 믹스 보드 출력
+# 우측 미디어 믹스 보드 출력 (💡 100% 정확한 드롭다운 검색 추가)
 if st.session_state.mix_mode and col_mix:
     with col_mix:
         st.subheader("🛒 미디어 믹스 보드")
         st.markdown("---")
         
+        # 💡 [핵심 보완] 지도 클릭의 낮은 정확도를 완벽하게 보완하는 '직접 검색 추가' 셀렉트박스
+        st.markdown("**🎯 매체 직접 검색 추가**")
+        media_options = df['NAME'].dropna().unique().tolist()
+        selected_media = st.selectbox(
+            "매체명을 선택하세요", 
+            options=["선택해주세요..."] + media_options,
+            key="media_search_selectbox"
+        )
+        
+        if selected_media != "선택해주세요...":
+            if st.button("➕ 믹스에 추가하기", use_container_width=True):
+                row_data = df[df['NAME'] == selected_media].iloc[0].to_dict()
+                if selected_media not in [item['NAME'] for item in st.session_state.mix_list]:
+                    st.session_state.mix_list.append(row_data)
+                    st.toast(f"🛒 [{selected_media}] 매체가 추가되었습니다!", icon="✅")
+                    st.rerun()
+                else:
+                    st.toast("⚠️ 이미 미디어 믹스 보드에 담긴 매체입니다.", icon="ℹ️")
+        
+        st.markdown("---")
+        
         if not st.session_state.mix_list:
-            st.warning("아직 추가된 매체가 없습니다. 마커를 클릭하세요.")
+            st.warning("아직 추가된 매체가 없습니다. 지도 클릭 또는 검색으로 추가하세요.")
         else:
             total_price = 0
             for idx, item in enumerate(st.session_state.mix_list):
