@@ -66,6 +66,7 @@ if 'LAT' not in df.columns or 'LON' not in df.columns:
 
 map_data = df.dropna(subset=['LAT', 'LON'])
 
+# GitHub Raw 원본 이미지 링크 생성
 def get_github_image_urls(raw_id):
     try:
         id_str = str(raw_id).strip()
@@ -80,10 +81,11 @@ def format_text_with_br(val):
     if pd.isna(val): return ""
     return str(val).replace('\n', '<br>')
 
-@st.cache_resource
+# 💡 캐싱 데코레이터 제거: 매번 지도가 새로 그려지면서 클릭 이벤트 리스너가 정상 작동합니다.
 def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
     
+    # 툴팁 및 팝업 스타일 CSS 최적화
     custom_css = """
     <style>
     .leaflet-tooltip {
@@ -132,6 +134,8 @@ def create_map(data_hash, is_mix_mode):
             m_details = format_text_with_br(row.get('Details', ''))
             
             img_urls = get_github_image_urls(row.get('ID', ''))
+            
+            # 호버링 툴팁용 이미지 (가로형)
             img_tag_small = f'<img src="{img_urls[0]}" style="width: 120px; height: 95px; object-fit: cover; border-radius: 6px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
             
             tooltip_items += f"""
@@ -141,11 +145,14 @@ def create_map(data_hash, is_mix_mode):
                     <span style="font-size: 11px; color: #555; display: block; margin-bottom: 2px;"><b>유형:</b> {m_type}</span>
                     <span style="font-size: 12px; color: #e74c3c; font-weight: bold;">💰 {m_price}원</span>
                 </div>
-                <div style="flex-shrink: 0;">{img_tag_small}</div>
+                <div style="flex-shrink: 0;">
+                    {img_tag_small}
+                </div>
             </div>
             """
             
             if not is_mix_mode:
+                # 클릭 팝업용 이미지 (1/2 축소 크기)
                 img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
                 img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
                 
@@ -157,11 +164,15 @@ def create_map(data_hash, is_mix_mode):
                         <div style="text-align:right; color:#e74c3c;"><b>단가:</b> {m_price}원<br>({m_period})</div>
                     </div>
                     <p style="margin:2px 0 10px 0; font-size:11px; color:#444; line-height:1.4;">{m_details}</p>
-                    <div style="display:flex; justify-content:space-between; gap:6px;">{img_tag_large_1}{img_tag_large_2}</div>
+                    <div style="display:flex; justify-content:space-between; gap:6px;">
+                        {img_tag_large_1}
+                        {img_tag_large_2}
+                    </div>
                 </div>
                 """
 
         tooltip_html = f"""<div style="font-family: sans-serif; padding: 2px; width: 380px;">{tooltip_items}</div>"""
+        
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
         
         html_content = f"""
@@ -184,35 +195,24 @@ def create_map(data_hash, is_mix_mode):
 
 map_obj = create_map(len(map_data), st.session_state.mix_mode)
 
+# 레이아웃 분할 설정
 if st.session_state.mix_mode:
     col_map, col_mix = st.columns([7, 3])
 else:
     col_map = st.container()
     col_mix = None
 
-returned_objects = ['last_clicked', 'last_object_clicked']
+returned_objects = ['last_clicked']
 
 with col_map:
     if st.session_state.mix_mode:
-        st.info("👆 지도에서 마커를 클릭하여 믹스 보드에 추가하세요.")
+        st.info("👆 지도에서 마커 근처를 클릭하시면 우측 믹스 보드에 매체가 자동으로 추가됩니다.")
     map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
 
-    # 🔍 [디버깅 모니터] 마커를 클릭했을 때 map_output에 무슨 값이 들어오는지 화면에 그대로 노출합니다.
-    if st.session_state.mix_mode:
-        with st.expander("🛠️ 디버그: map_output 데이터 실시간 확인", expanded=True):
-            st.write(map_output)
-
-# 클릭 좌표 추출
-clicked_lat, clicked_lon = None, None
-if st.session_state.mix_mode and map_output:
-    if map_output.get('last_object_clicked'):
-        clicked_lat = map_output['last_object_clicked']['lat']
-        clicked_lon = map_output['last_object_clicked']['lng']
-    elif map_output.get('last_clicked'):
-        clicked_lat = map_output['last_clicked']['lat']
-        clicked_lon = map_output['last_clicked']['lng']
-
-if clicked_lat is not None and clicked_lon is not None:
+# 💡 지도 클릭 좌표 기반 스마트 매체 매칭 시스템
+if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
+    clicked_lat = map_output['last_clicked']['lat']
+    clicked_lon = map_output['last_clicked']['lng']
     click_key = f"{clicked_lat:.5f}_{clicked_lon:.5f}"
     
     if click_key != st.session_state.last_click_key:
@@ -225,7 +225,7 @@ if clicked_lat is not None and clicked_lon is not None:
             closest_idx = unique_coords['dist_sq'].idxmin()
             min_dist = unique_coords.loc[closest_idx, 'dist_sq']
             
-            if min_dist < 0.005:
+            if min_dist < 0.003:
                 lat, lon = unique_coords.loc[closest_idx, 'LAT'], unique_coords.loc[closest_idx, 'LON']
                 matched = map_data[(map_data['LAT'] == lat) & (map_data['LON'] == lon)]
                 
@@ -241,6 +241,7 @@ if clicked_lat is not None and clicked_lon is not None:
                 else:
                     st.toast("⚠️ 이미 미디어 믹스 보드에 담긴 매체입니다.", icon="ℹ️")
 
+# 우측 미디어 믹스 보드 출력
 if st.session_state.mix_mode and col_mix:
     with col_mix:
         st.subheader("🛒 미디어 믹스 보드")
