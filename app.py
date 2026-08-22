@@ -12,8 +12,15 @@ if 'mix_mode' not in st.session_state:
     st.session_state.mix_mode = False
 if 'mix_list' not in st.session_state:
     st.session_state.mix_list = []
-if 'last_click_key' not in st.session_state:
-    st.session_state.last_click_key = ""
+
+# 💡 URL 쿼리 파라미터를 통한 팝업 버튼 클릭 감지 및 믹스 추가 처리
+if "add_id" in st.query_params:
+    add_id = st.query_params["add_id"]
+    st.query_params.clear() # 중복 추가 방지를 위해 파라미터 즉시 초기화
+    
+    # 데이터에서 해당 ID 매체 찾기
+    # (데이터 로드 전이므로 임시로 세션 상태나 로드 로직 하단에서 처리되도록 플래그 설정 가능)
+    st.session_state.pending_add_id = add_id
 
 # 상단 헤더 & 모드 전환 버튼
 col_title, col_mix_btn = st.columns([8, 2])
@@ -48,6 +55,19 @@ except Exception:
     st.error("데이터 로드 실패")
     st.stop()
 
+# 대기 중이던 쿼리 파라미터 매체 믹스 추가 실행
+if 'pending_add_id' in st.session_state and st.session_state.pending_add_id:
+    p_id = str(st.session_state.pending_add_id).strip().replace('.0', '')
+    matched_row = df[df['ID'].astype(str).str.strip().str.replace('.0', '', regex=False) == p_id]
+    if not matched_row.empty:
+        row_data = matched_row.iloc[0].to_dict()
+        if row_data['NAME'] not in [item['NAME'] for item in st.session_state.mix_list]:
+            st.session_state.mix_list.append(row_data)
+            st.toast(f"🛒 [{row_data['NAME']}] 매체가 미디어 믹스에 추가되었습니다!", icon="✅")
+        else:
+            st.toast("⚠️ 이미 미디어 믹스 보드에 담긴 매체입니다.", icon="ℹ️")
+    st.session_state.pending_add_id = None
+
 @st.cache_data
 def get_lat_lon(address, api_key):
     api_url = "https://dapi.kakao.com/v2/local/search/address.json"
@@ -80,7 +100,6 @@ def format_text_with_br(val):
     if pd.isna(val): return ""
     return str(val).replace('\n', '<br>')
 
-# 💡 지도 생성 함수 캐싱 적용 (속도 대폭 개선)
 @st.cache_resource
 def create_map(data_hash, is_mix_mode):
     m = folium.Map(location=[37.5665, 126.9780], zoom_start=11, tiles='CartoDB positron')
@@ -91,7 +110,7 @@ def create_map(data_hash, is_mix_mode):
         max-width: 420px !important;
         white-space: normal !important;
         border-radius: 12px !important;
-        box-shadow: 0 8px 25px rgba(0,0,0,0.3) !important;
+        box-shadow: 0 4px 25px rgba(0,0,0,0.3) !important;
         padding: 12px !important;
         background-color: #ffffff !important;
         border: 2px solid #ddd !important;
@@ -131,8 +150,9 @@ def create_map(data_hash, is_mix_mode):
             m_type = format_text_with_br(row.get('TYPE', ''))
             m_location = format_text_with_br(row.get('LOCATION', ''))
             m_details = format_text_with_br(row.get('Details', ''))
+            m_id = row.get('ID', '')
             
-            img_urls = get_github_image_urls(row.get('ID', ''))
+            img_urls = get_github_image_urls(m_id)
             img_tag_small = f'<img src="{img_urls[0]}" style="width: 120px; height: 95px; object-fit: cover; border-radius: 6px;" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
             
             tooltip_items += f"""
@@ -146,21 +166,30 @@ def create_map(data_hash, is_mix_mode):
             </div>
             """
             
-            if not is_mix_mode:
-                img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
-                img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
-                
-                popup_items += f"""
-                <div style="margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 12px;">
-                    <h3 style="margin:0 0 8px 0; color:#111; font-size:15px;">🏷️ {m_name}</h3>
-                    <div style="display:flex; justify-content:space-between; font-size:12px; background:#f8f9fa; padding:8px; border-radius:6px; margin-bottom:8px;">
-                        <div><b>유형:</b> {m_type}<br><b>주소:</b> {m_location}</div>
-                        <div style="text-align:right; color:#e74c3c;"><b>단가:</b> {m_price}원<br>({m_period})</div>
-                    </div>
-                    <p style="margin:2px 0 10px 0; font-size:11px; color:#444; line-height:1.4;">{m_details}</p>
-                    <div style="display:flex; justify-content:space-between; gap:6px;">{img_tag_large_1}{img_tag_large_2}</div>
-                </div>
+            # 💡 믹스 모드일 때는 팝업 내부에 '믹스에 추가하기' 버튼 생성
+            add_button_html = ""
+            if is_mix_mode:
+                add_button_html = f"""
+                <a href="?add_id={m_id}" target="_self" style="display: block; text-align: center; background-color: #ff4b4b; color: white; padding: 8px; border-radius: 6px; text-decoration: none; font-weight: bold; margin-top: 10px; font-size: 13px;">
+                    🛒 미디어 믹스에 추가하기
+                </a>
                 """
+
+            img_tag_large_1 = f'<img src="{img_urls[0]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[0] else ''
+            img_tag_large_2 = f'<img src="{img_urls[1]}" style="width:48%; height:170px; object-fit:cover; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" onerror="this.style.display=\'none\'" />' if img_urls[1] else ''
+            
+            popup_items += f"""
+            <div style="margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 12px;">
+                <h3 style="margin:0 0 8px 0; color:#111; font-size:15px;">🏷️ {m_name}</h3>
+                <div style="display:flex; justify-content:space-between; font-size:12px; background:#f8f9fa; padding:8px; border-radius:6px; margin-bottom:8px;">
+                    <div><b>유형:</b> {m_type}<br><b>주소:</b> {m_location}</div>
+                    <div style="text-align:right; color:#e74c3c;"><b>단가:</b> {m_price}원<br>({m_period})</div>
+                </div>
+                <p style="margin:2px 0 10px 0; font-size:11px; color:#444; line-height:1.4;">{m_details}</p>
+                <div style="display:flex; justify-content:space-between; gap:6px;">{img_tag_large_1}{img_tag_large_2}</div>
+                {add_button_html}
+            </div>
+            """
 
         tooltip_html = f"""<div style="font-family: sans-serif; padding: 2px; width: 380px;">{tooltip_items}</div>"""
         badge_html = '<div style="position: absolute; top:-10px; right:-16px; background-color:#e74c3c; color:white; font-size:9px; font-weight:bold; padding:1px 3px; border-radius:3px; border:1px solid white; z-index:10;">불법</div>' if is_illegal else ''
@@ -178,7 +207,7 @@ def create_map(data_hash, is_mix_mode):
             [lat, lon], 
             icon=folium.DivIcon(html=html_content, icon_size=(32, 32), icon_anchor=(16, 16)),
             tooltip=folium.Tooltip(tooltip_html, parse_html=True, direction='auto'),
-            popup=None if is_mix_mode else folium.Popup(popup_html, max_width=500, keep_in_view=True)
+            popup=folium.Popup(popup_html, max_width=500, keep_in_view=True)
         ).add_to(m)
         
     return m
@@ -192,52 +221,17 @@ else:
     col_map = st.container()
     col_mix = None
 
-returned_objects = ['last_clicked']
-
 with col_map:
     if st.session_state.mix_mode:
-        st.info("👆 지도에서 마커를 클릭하거나, 우측 보드의 검색창을 통해 100% 정확하게 추가하세요.")
-    map_output = st_folium(map_obj, width="100%", height=650, returned_objects=returned_objects, key="main_stable_map")
+        st.info("👆 지도에서 마커를 클릭하여 팝업창을 띄우고, [미디어 믹스에 추가하기] 버튼을 눌러 담으세요.")
+    st_folium(map_obj, width="100%", height=650, key="main_stable_map")
 
-# 💡 지도 클릭 좌표 기반 스마트 매체 매칭 시스템
-if st.session_state.mix_mode and map_output and map_output.get('last_clicked'):
-    clicked_lat = map_output['last_clicked']['lat']
-    clicked_lon = map_output['last_clicked']['lng']
-    click_key = f"{clicked_lat:.5f}_{clicked_lon:.5f}"
-    
-    if click_key != st.session_state.last_click_key:
-        st.session_state.last_click_key = click_key
-        
-        unique_coords = map_data[['LAT', 'LON']].drop_duplicates().copy()
-        unique_coords['dist_sq'] = (unique_coords['LAT'] - clicked_lat)**2 + (unique_coords['LON'] - clicked_lon)**2
-        
-        if not unique_coords.empty:
-            closest_idx = unique_coords['dist_sq'].idxmin()
-            min_dist = unique_coords.loc[closest_idx, 'dist_sq']
-            
-            if min_dist < 0.003:
-                lat, lon = unique_coords.loc[closest_idx, 'LAT'], unique_coords.loc[closest_idx, 'LON']
-                matched = map_data[(map_data['LAT'] == lat) & (map_data['LON'] == lon)]
-                
-                added_count = 0
-                for _, row in matched.iterrows():
-                    if row['NAME'] not in [item['NAME'] for item in st.session_state.mix_list]:
-                        st.session_state.mix_list.append(row.to_dict())
-                        added_count += 1
-                
-                if added_count > 0:
-                    st.toast(f"🛒 미디어 믹스에 {added_count}개의 매체가 추가되었습니다!", icon="✅")
-                    st.rerun()
-                else:
-                    st.toast("⚠️ 이미 미디어 믹스 보드에 담긴 매체입니다.", icon="ℹ️")
-
-# 우측 미디어 믹스 보드 출력 (💡 100% 정확한 드롭다운 검색 추가)
+# 우측 미디어 믹스 보드 출력 (직접 검색 추가 기능도 동시 제공)
 if st.session_state.mix_mode and col_mix:
     with col_mix:
         st.subheader("🛒 미디어 믹스 보드")
         st.markdown("---")
         
-        # 💡 [핵심 보완] 지도 클릭의 낮은 정확도를 완벽하게 보완하는 '직접 검색 추가' 셀렉트박스
         st.markdown("**🎯 매체 직접 검색 추가**")
         media_options = df['NAME'].dropna().unique().tolist()
         selected_media = st.selectbox(
@@ -259,7 +253,7 @@ if st.session_state.mix_mode and col_mix:
         st.markdown("---")
         
         if not st.session_state.mix_list:
-            st.warning("아직 추가된 매체가 없습니다. 지도 클릭 또는 검색으로 추가하세요.")
+            st.warning("아직 추가된 매체가 없습니다. 마커를 클릭해 추가하세요.")
         else:
             total_price = 0
             for idx, item in enumerate(st.session_state.mix_list):
@@ -270,7 +264,6 @@ if st.session_state.mix_mode and col_mix:
                 with col_del:
                     if st.button("❌", key=f"del_{idx}"):
                         st.session_state.mix_list.pop(idx)
-                        st.session_state.last_click_key = ""
                         st.rerun()
                 st.markdown("---")
                 
